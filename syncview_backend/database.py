@@ -1,8 +1,9 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+import os
 
-# PostgreSQL 연결 정보 (비밀번호는 유영님 설치할 때 설정한 값)
-DATABASE_URL = "postgresql://postgres:2048@localhost:5432/syncview"
+# PostgreSQL 연결 정보 (환경 변수에서 읽기, 없으면 로컬 개발 환경 사용)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:2048@localhost:5432/syncview")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
