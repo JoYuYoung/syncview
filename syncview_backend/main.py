@@ -14,16 +14,9 @@ app = FastAPI(title="SyncView Backend")
 # ✅ CORS 설정 (반드시 다른 Middleware보다 먼저!)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "https://www.syncview.kr",
-        "https://syncview.kr",
-        "https://syncview-blond.vercel.app",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=["*"],  # 모든 origin 허용 (디버깅)
+    allow_credentials=False,  # credentials False로 변경
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
