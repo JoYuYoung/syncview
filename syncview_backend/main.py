@@ -11,27 +11,25 @@ Base.metadata.create_all(bind=engine)
 # ✅ FastAPI 앱 생성
 app = FastAPI(title="SyncView Backend")
 
-# ✅ Session Middleware 추가 (OAuth 사용을 위해 필요)
-app.add_middleware(SessionMiddleware, secret_key="your-secret-key-change-this-in-production")
-
-# ✅ CORS 설정
-origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "https://www.syncview.kr",
-    "https://syncview.kr",
-    "https://syncview-blond.vercel.app",
-]
-
+# ✅ CORS 설정 (반드시 다른 Middleware보다 먼저!)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],         # 임시로 모든 도메인 허용 (디버깅용)
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "https://www.syncview.kr",
+        "https://syncview.kr",
+        "https://syncview-blond.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# ✅ Session Middleware 추가 (OAuth 사용을 위해 필요)
+app.add_middleware(SessionMiddleware, secret_key="your-secret-key-change-this-in-production")
 
 # ✅ 라우터 등록
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
