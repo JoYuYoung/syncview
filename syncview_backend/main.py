@@ -16,19 +16,21 @@ app.add_middleware(SessionMiddleware, secret_key="your-secret-key-change-this-in
 
 # ✅ CORS 설정
 origins = [
-    "http://localhost:5173",  # React 개발 서버 (Vite 기준)
-    "http://localhost:3000",  # CRA 기준
-    "https://www.syncview.kr",  # 프로덕션 도메인
-    "https://syncview.kr",      # 프로덕션 도메인 (www 없이)
-    "https://syncview-blond.vercel.app",  # Vercel 자동 생성 URL
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "https://www.syncview.kr",
+    "https://syncview.kr",
+    "https://syncview-blond.vercel.app",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,       # 허용할 출처
+    allow_origins=["*"],         # 임시로 모든 도메인 허용 (디버깅용)
     allow_credentials=True,
-    allow_methods=["*"],         # 모든 메소드 허용 (POST, GET, OPTIONS 등)
-    allow_headers=["*"],         # 모든 헤더 허용
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # ✅ 라우터 등록
