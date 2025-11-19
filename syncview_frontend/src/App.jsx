@@ -17,6 +17,16 @@ export default function App() {
   // ✅ 로그인 상태 관리
   const [user, setUser] = useState(null);
 
+  // ✅ 백엔드 서버 깨우기 (Render 슬립 모드 방지)
+  useEffect(() => {
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+    
+    // 백엔드 health check로 서버 깨우기
+    fetch(`${API_URL}/health`)
+      .then(() => console.log("✅ 백엔드 서버 연결됨"))
+      .catch((err) => console.warn("⚠️ 백엔드 연결 실패 (슬립 모드일 수 있음):", err));
+  }, []);
+
   // ✅ 새로고침 시에도 로그인 유지
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
