@@ -8,14 +8,18 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import warnings
 
 # ─────────────────────────────────────────────────────────────
-# 1️⃣ 모델 경로 (영문 절대경로만 사용)
-# NLLB-200 distilled 모델 (600MB, 200개 언어 지원)
+# 1️⃣ 모델 경로 설정
 # ─────────────────────────────────────────────────────────────
-# 작은 모델로 변경 (1.2GB -> 600MB)
-LOCAL_MODEL_DIR = Path(r"C:\sync_models\nllb-200-distilled-600M")
-# 대안: 더 작은 모델
-# LOCAL_MODEL_DIR = Path(r"C:\sync_models\opus-mt-en-ko")  # 약 300MB
-print(f"[Translator] MODEL_DIR = {LOCAL_MODEL_DIR}")
+# 로컬 개발: Windows 경로 사용
+# 프로덕션(Render): Hugging Face에서 자동 다운로드
+if os.getenv("RENDER"):  # Render 환경
+    MODEL_NAME = "facebook/nllb-200-distilled-600M"
+    LOCAL_MODEL_DIR = None
+    print(f"[Translator] 프로덕션 모드: Hugging Face에서 자동 다운로드")
+else:  # 로컬 개발
+    LOCAL_MODEL_DIR = Path(r"C:\sync_models\nllb-200-distilled-600M")
+    MODEL_NAME = str(LOCAL_MODEL_DIR) if LOCAL_MODEL_DIR.exists() else "facebook/nllb-200-distilled-600M"
+    print(f"[Translator] 로컬 모드: MODEL_DIR = {LOCAL_MODEL_DIR}")
 
 # ─────────────────────────────────────────────────────────────
 # 2️⃣ 환경 변수 정리
@@ -44,21 +48,35 @@ def _load_model_local_only():
     if _initialized:
         return
 
-    if not LOCAL_MODEL_DIR.exists():
-        raise RuntimeError(
-            f"❌ Model folder not found: {LOCAL_MODEL_DIR}\n"
-            f"→ Put model files here (hf download or copy)."
-        )
-
     try:
-        _tokenizer = AutoTokenizer.from_pretrained(str(LOCAL_MODEL_DIR), local_files_only=True, src_lang="eng_Latn", tgt_lang="kor_Hang")
-        _model = AutoModelForSeq2SeqLM.from_pretrained(str(LOCAL_MODEL_DIR), local_files_only=True)
-        _model.to(_get_device())
-        _initialized = True
-        print(f"✅ 번역 모델 로딩 완료 (NLLB): {LOCAL_MODEL_DIR}")
+        # Render(프로덕션) 환경: Hugging Face에서 자동 다운로드
+        if LOCAL_MODEL_DIR is None or not LOCAL_MODEL_DIR.exists():
+            print(f"🌐 Hugging Face에서 모델 다운로드 중: {MODEL_NAME}")
+            _tokenizer = AutoTokenizer.from_pretrained(
+                MODEL_NAME, 
+                src_lang="eng_Latn", 
+                tgt_lang="kor_Hang"
+            )
+            _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
+            _model.to(_get_device())
+            _initialized = True
+            print(f"✅ 번역 모델 로딩 완료 (온라인): {MODEL_NAME}")
+        # 로컬 개발: 로컬 파일에서 로드
+        else:
+            print(f"📂 로컬 모델 로딩 중: {LOCAL_MODEL_DIR}")
+            _tokenizer = AutoTokenizer.from_pretrained(
+                str(LOCAL_MODEL_DIR), 
+                local_files_only=True, 
+                src_lang="eng_Latn", 
+                tgt_lang="kor_Hang"
+            )
+            _model = AutoModelForSeq2SeqLM.from_pretrained(str(LOCAL_MODEL_DIR), local_files_only=True)
+            _model.to(_get_device())
+            _initialized = True
+            print(f"✅ 번역 모델 로딩 완료 (로컬): {LOCAL_MODEL_DIR}")
     except Exception as e:
         raise RuntimeError(
-            f"❌ 로컬 번역 모델 로딩 실패.\n경로: {LOCAL_MODEL_DIR}\n오류: {e}"
+            f"❌ 번역 모델 로딩 실패.\n모델: {MODEL_NAME if LOCAL_MODEL_DIR is None else LOCAL_MODEL_DIR}\n오류: {e}"
         )
 
 

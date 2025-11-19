@@ -33,7 +33,7 @@ def _get_summarizer():
             model = AutoModelForSeq2SeqLM.from_pretrained(
                 "facebook/bart-large-cnn",
                 device_map=None,
-                torch_dtype=torch.float32
+                torch_dtype=torch.float32  # dtype으로 변경하면 에러 발생할 수 있으므로 유지
             ).to('cpu')
             model.eval()
             
@@ -61,7 +61,7 @@ def _get_sentiment_analyzer():
             model = AutoModelForSequenceClassification.from_pretrained(
                 "distilbert-base-uncased-finetuned-sst-2-english",
                 device_map=None,
-                torch_dtype=torch.float32
+                torch_dtype=torch.float32  # dtype으로 변경하면 에러 발생할 수 있으므로 유지
             ).to('cpu')
             model.eval()
             
