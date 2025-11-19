@@ -16,9 +16,20 @@ class TranslateReq(BaseModel):
 @router.get("/translate/health")
 def health_check():
     """
-    1) 필수 파일 존재 확인 (빠름)
-    2) 초경량 로드 테스트: translate_en_to_ko("ping") (모델 lazy-load 검증)
+    번역 서비스 상태 확인
+    - 로컬 모드: 모델 파일 존재 확인
+    - 프로덕션 모드: 온라인 다운로드 가능 여부 확인
     """
+    # 프로덕션 환경 (Render): 온라인 다운로드 모드
+    if LOCAL_MODEL_DIR is None:
+        try:
+            # 간단한 번역 테스트로 서비스 확인
+            _ = translate_en_to_ko("test")
+            return {"status": "ok", "mode": "online", "model": "facebook/nllb-200-distilled-600M"}
+        except Exception as e:
+            return {"status": "unhealthy", "service": "translation", "error": str(e)}
+    
+    # 로컬 환경: 모델 파일 확인
     model_dir: Path = LOCAL_MODEL_DIR
     if not model_dir.exists():
         return {"status": "unhealthy", "service": "translation",
@@ -42,10 +53,10 @@ def health_check():
         return {"status": "unhealthy", "service": "translation",
                 "error": "필수 모델 파일 누락", "missing": missing}
 
-    # 초경량 로드 테스트 (실제 로딩이 안 되면 여기서 예외)
+    # 초경량 로드 테스트
     try:
         _ = translate_en_to_ko("ping")
-        return {"status": "ok", "model": model_dir.name}
+        return {"status": "ok", "mode": "local", "model": model_dir.name}
     except Exception as e:
         return {"status": "unhealthy", "service": "translation", "error": str(e)}
 
