@@ -20,6 +20,7 @@ origins = [
     "http://localhost:3000",  # CRA 기준
     "https://www.syncview.kr",  # 프로덕션 도메인
     "https://syncview.kr",      # 프로덕션 도메인 (www 없이)
+    "https://syncview-blond.vercel.app",  # Vercel 자동 생성 URL
 ]
 
 app.add_middleware(
