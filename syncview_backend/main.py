@@ -11,13 +11,20 @@ Base.metadata.create_all(bind=engine)
 # ✅ FastAPI 앱 생성
 app = FastAPI(title="SyncView Backend")
 
-# ✅ 앱 시작 시 AI 모델 미리 로드
+# ✅ 앱 시작 시 AI 모델 미리 로드 (Instance Type 변경 후 활성화)
 @app.on_event("startup")
 async def startup_event():
     """서버 시작 시 모든 AI 모델을 미리 로드"""
     import logging
     logger = logging.getLogger(__name__)
     
+    # 임시로 비활성화: Live 상태 만든 후 Instance Type을 Professional로 변경하세요!
+    logger.info("⏭️ AI 모델 사전 로드 건너뜀 (Instance Type 변경 필요)")
+    logger.info("📝 1단계: 서버 Live 후 Settings → Instance Type → Professional 선택")
+    logger.info("📝 2단계: 이 주석을 제거하고 다시 배포")
+    return
+    
+    # 아래 코드는 Professional 플랜 (8GB) 적용 후 활성화
     try:
         logger.info("🚀 AI 모델 사전 로드 시작...")
         
@@ -39,7 +46,6 @@ async def startup_event():
         logger.info("🎉 모든 AI 모델 사전 로드 완료!")
     except Exception as e:
         logger.error(f"❌ AI 모델 로드 실패: {e}")
-        # 에러가 나도 서버는 계속 시작 (지연 로딩으로 재시도 가능)
 
 # ✅ CORS 설정 (반드시 다른 Middleware보다 먼저!)
 app.add_middleware(
