@@ -29,21 +29,11 @@ def _get_summarizer():
     if summarizer is None:
         try:
             logger.info("요약 모델 로딩 중...")
-            # ✅ DistilBART 사용 (300MB) - meta device 완전히 비활성화
-            tokenizer = AutoTokenizer.from_pretrained("sshleifer/distilbart-cnn-12-6")
-            model = AutoModelForSeq2SeqLM.from_pretrained(
-                "sshleifer/distilbart-cnn-12-6",
-                low_cpu_mem_usage=False,  # meta device 사용 안함
-                torch_dtype=None  # 자동 dtype 사용 안함
-            )
-            model = model.to('cpu')
-            model.eval()
-            
+            # ✅ device_map / low_cpu_mem_usage 없이 깔끔하게 로드
             summarizer = pipeline(
                 "summarization",
-                model=model,
-                tokenizer=tokenizer,
-                device=-1
+                model="sshleifer/distilbart-cnn-12-6",
+                device=-1  # CPU 강제 (pipeline이 알아서 처리)
             )
             logger.info("✅ 요약 모델 로딩 완료 (CPU)")
         except Exception as e:
@@ -57,21 +47,11 @@ def _get_sentiment_analyzer():
     if sentiment_analyzer is None:
         try:
             logger.info("감성 분석 모델 로딩 중...")
-            # ✅ meta device 완전히 비활성화
-            tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
-            model = AutoModelForSequenceClassification.from_pretrained(
-                "distilbert-base-uncased-finetuned-sst-2-english",
-                low_cpu_mem_usage=False,  # meta device 사용 안함
-                torch_dtype=None  # 자동 dtype 사용 안함
-            )
-            model = model.to('cpu')
-            model.eval()
-            
+            # ✅ device_map / low_cpu_mem_usage 없이 깔끔하게 로드
             sentiment_analyzer = pipeline(
                 "sentiment-analysis",
-                model=model,
-                tokenizer=tokenizer,
-                device=-1
+                model="distilbert-base-uncased-finetuned-sst-2-english",
+                device=-1  # CPU 강제 (pipeline이 알아서 처리)
             )
             logger.info("✅ 감성 분석 모델 로딩 완료 (CPU)")
         except Exception as e:
