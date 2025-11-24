@@ -11,18 +11,12 @@ Base.metadata.create_all(bind=engine)
 # ✅ FastAPI 앱 생성
 app = FastAPI(title="SyncView Backend")
 
-# ✅ 앱 시작 시 AI 모델 미리 로드 (Professional 플랜 적용 후 활성화)
+# ✅ 앱 시작 시 AI 모델 미리 로드
 @app.on_event("startup")
 async def startup_event():
     """서버 시작 시 모든 AI 모델을 미리 로드"""
     import logging
-    import os
     logger = logging.getLogger(__name__)
-    
-    # 임시: Instance Type 변경을 위해 모델 사전 로드 비활성화
-    if os.getenv("PRELOAD_MODELS") != "true":
-        logger.info("⏭️ AI 모델 사전 로드 건너뜀 (PRELOAD_MODELS != true)")
-        return
     
     try:
         logger.info("🚀 AI 모델 사전 로드 시작...")
@@ -45,6 +39,7 @@ async def startup_event():
         logger.info("🎉 모든 AI 모델 사전 로드 완료!")
     except Exception as e:
         logger.error(f"❌ AI 모델 로드 실패: {e}")
+        # 에러가 나도 서버는 계속 시작 (지연 로딩으로 재시도 가능)
 
 # ✅ CORS 설정 (반드시 다른 Middleware보다 먼저!)
 app.add_middleware(

@@ -29,13 +29,15 @@ def _get_summarizer():
     if summarizer is None:
         try:
             logger.info("요약 모델 로딩 중...")
-            # ✅ DistilBART 사용 (300MB, BART 대비 6배 작음)
-            model = AutoModelForSeq2SeqLM.from_pretrained(
-                "sshleifer/distilbart-cnn-12-6"
-            ).to('cpu')
-            model.eval()
-            
+            # ✅ DistilBART 사용 (300MB) - meta device 완전히 비활성화
             tokenizer = AutoTokenizer.from_pretrained("sshleifer/distilbart-cnn-12-6")
+            model = AutoModelForSeq2SeqLM.from_pretrained(
+                "sshleifer/distilbart-cnn-12-6",
+                low_cpu_mem_usage=False,  # meta device 사용 안함
+                torch_dtype=None  # 자동 dtype 사용 안함
+            )
+            model = model.to('cpu')
+            model.eval()
             
             summarizer = pipeline(
                 "summarization",
@@ -43,9 +45,9 @@ def _get_summarizer():
                 tokenizer=tokenizer,
                 device=-1
             )
-            logger.info("요약 모델 로딩 완료 (CPU)")
+            logger.info("✅ 요약 모델 로딩 완료 (CPU)")
         except Exception as e:
-            logger.error(f"요약 모델 로딩 실패: {e}")
+            logger.error(f"❌ 요약 모델 로딩 실패: {e}")
             raise HTTPException(status_code=503, detail="요약 모델을 로딩할 수 없습니다.")
     return summarizer
 
@@ -55,13 +57,15 @@ def _get_sentiment_analyzer():
     if sentiment_analyzer is None:
         try:
             logger.info("감성 분석 모델 로딩 중...")
-            # ✅ 모델과 토크나이저를 명시적으로 CPU로 로드
-            model = AutoModelForSequenceClassification.from_pretrained(
-                "distilbert-base-uncased-finetuned-sst-2-english"
-            ).to('cpu')
-            model.eval()
-            
+            # ✅ meta device 완전히 비활성화
             tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
+            model = AutoModelForSequenceClassification.from_pretrained(
+                "distilbert-base-uncased-finetuned-sst-2-english",
+                low_cpu_mem_usage=False,  # meta device 사용 안함
+                torch_dtype=None  # 자동 dtype 사용 안함
+            )
+            model = model.to('cpu')
+            model.eval()
             
             sentiment_analyzer = pipeline(
                 "sentiment-analysis",
@@ -69,9 +73,9 @@ def _get_sentiment_analyzer():
                 tokenizer=tokenizer,
                 device=-1
             )
-            logger.info("감성 분석 모델 로딩 완료 (CPU)")
+            logger.info("✅ 감성 분석 모델 로딩 완료 (CPU)")
         except Exception as e:
-            logger.error(f"감성 분석 모델 로딩 실패: {e}")
+            logger.error(f"❌ 감성 분석 모델 로딩 실패: {e}")
             raise HTTPException(status_code=503, detail="감성 분석 모델을 로딩할 수 없습니다.")
     return sentiment_analyzer
 
