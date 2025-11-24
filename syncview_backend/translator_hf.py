@@ -32,15 +32,7 @@ for k in ["HF_TOKEN", "HUGGINGFACE_HUB_TOKEN", "HUGGINGFACE_HUB_ENDPOINT", "HF_E
 # ─────────────────────────────────────────────────────────────
 _tokenizer = None
 _model = None
-_device = None
 _initialized = False
-
-
-def _get_device():
-    global _device
-    if _device is None:
-        _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return _device
 
 
 def _load_model_local_only():
@@ -98,7 +90,7 @@ def _clean_out(s: str) -> str:
 
 @lru_cache(maxsize=512)
 def translate_en_to_ko(text: str) -> str:
-    """영어 → 한국어 번역 (NLLB 모델 사용)"""
+    """영어 → 한국어 번역 (Opus-MT 모델 사용)"""
     if not text or not text.strip():
         return ""
 
@@ -106,13 +98,14 @@ def translate_en_to_ko(text: str) -> str:
 
     outs = []
     for chunk in _chunk_text(text):
+        # ✅ .to() 호출 제거 (CPU는 기본값)
         inputs = _tokenizer(
             chunk,
             return_tensors="pt",
             padding=True,
             truncation=True,
             max_length=512
-        ).to(_get_device())
+        )
 
         with torch.no_grad():
             generated_tokens = _model.generate(

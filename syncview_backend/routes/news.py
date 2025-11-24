@@ -15,6 +15,10 @@ import os
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 os.environ["ACCELERATE_USE_CPU"] = "1"
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+
+# ✅ torch 기본 device를 CPU로 강제 설정
+torch.set_default_device('cpu')
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
