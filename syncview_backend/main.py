@@ -11,12 +11,18 @@ Base.metadata.create_all(bind=engine)
 # ✅ FastAPI 앱 생성
 app = FastAPI(title="SyncView Backend")
 
-# ✅ 앱 시작 시 AI 모델 미리 로드
+# ✅ 앱 시작 시 AI 모델 미리 로드 (Professional 플랜 적용 후 활성화)
 @app.on_event("startup")
 async def startup_event():
     """서버 시작 시 모든 AI 모델을 미리 로드"""
     import logging
+    import os
     logger = logging.getLogger(__name__)
+    
+    # 임시: Instance Type 변경을 위해 모델 사전 로드 비활성화
+    if os.getenv("PRELOAD_MODELS") != "true":
+        logger.info("⏭️ AI 모델 사전 로드 건너뜀 (PRELOAD_MODELS != true)")
+        return
     
     try:
         logger.info("🚀 AI 모델 사전 로드 시작...")
