@@ -44,14 +44,15 @@ def _load_model_local_only():
     try:
         # Render(프로덕션) 환경: Hugging Face에서 자동 다운로드
         if LOCAL_MODEL_DIR is None or not LOCAL_MODEL_DIR.exists():
-            print(f"🌐 Hugging Face에서 모델 다운로드 중: {MODEL_NAME} (~100MB)")
+            print(f"🔄 번역 모델 로딩 중: {MODEL_NAME} (~100MB)")
+            print(f"⏳ 첫 번역 요청이므로 3초 정도 소요됩니다...")
             _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
             # ✅ 기본 CPU 로드 (Render는 CPU만 있음, .to() 불필요)
             _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
             # CPU는 기본값이므로 .to() 호출 생략
             gc.collect()  # 메모리 정리
             _initialized = True
-            print(f"✅ 번역 모델 로딩 완료 (온라인, 경량 버전): {MODEL_NAME}")
+            print(f"✅ 번역 모델 로딩 완료 (이후 요청은 즉시 처리): {MODEL_NAME}")
         # 로컬 개발: 로컬 파일에서 로드
         else:
             print(f"📂 로컬 모델 로딩 중: {LOCAL_MODEL_DIR}")

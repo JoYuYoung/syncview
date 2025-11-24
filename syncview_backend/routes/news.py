@@ -11,6 +11,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import os
 import gc  # 메모리 최적화를 위한 가비지 컬렉션
+import psutil  # 메모리 사용량 모니터링
 
 # ✅ accelerate와 meta device 완전히 비활성화
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
@@ -29,38 +30,53 @@ summarizer = None
 sentiment_analyzer = None
 
 def _get_summarizer():
-    """지연 로딩으로 요약 모델 초기화 (2GB RAM 최적화 - 더 작은 모델)"""
+    """지연 로딩으로 요약 모델 초기화 (첫 요약 요청 시 자동 로딩)"""
     global summarizer
     if summarizer is None:
         try:
-            logger.info("요약 모델 로딩 중 (경량 버전, ~150MB)...")
+            process = psutil.Process(os.getpid())
+            mem_before = process.memory_info().rss / 1024 / 1024
+            
+            logger.info("🔄 요약 모델 로딩 중 (경량 버전, ~150MB)...")
+            logger.info("⏳ 첫 요약 요청이므로 5초 정도 소요됩니다...")
             # ✅ 더 작은 모델 사용: distilbart-cnn-6-6 (12-6보다 50% 작음)
             summarizer = pipeline(
                 "summarization",
                 model="sshleifer/distilbart-cnn-6-6",
-                device=-1  # CPU 강제
+                device=-1,  # CPU 강제
+                framework="pt"  # PyTorch 명시
             )
             gc.collect()  # 메모리 정리
-            logger.info("✅ 요약 모델 로딩 완료 (CPU, 경량 버전)")
+            
+            mem_after = process.memory_info().rss / 1024 / 1024
+            logger.info(f"✅ 요약 모델 로딩 완료 (이후 요청은 즉시 처리)")
+            logger.info(f"   +{mem_after - mem_before:.1f} MB, 총 메모리: {mem_after:.1f} MB")
         except Exception as e:
             logger.error(f"❌ 요약 모델 로딩 실패: {e}")
             raise HTTPException(status_code=503, detail="요약 모델을 로딩할 수 없습니다.")
     return summarizer
 
 def _get_sentiment_analyzer():
-    """지연 로딩으로 감성 분석 모델 초기화 (2GB RAM 최적화)"""
+    """감성 분석 모델 초기화 (서버 시작 시 사전 로딩 - 가장 중요한 기능)"""
     global sentiment_analyzer
     if sentiment_analyzer is None:
         try:
-            logger.info("감성 분석 모델 로딩 중 (~268MB)...")
+            process = psutil.Process(os.getpid())
+            mem_before = process.memory_info().rss / 1024 / 1024
+            
+            logger.info("🔄 감성 분석 모델 로딩 중 (~268MB)...")
             # ✅ device_map / low_cpu_mem_usage 없이 깔끔하게 로드
             sentiment_analyzer = pipeline(
                 "sentiment-analysis",
                 model="distilbert-base-uncased-finetuned-sst-2-english",
-                device=-1  # CPU 강제 (pipeline이 알아서 처리)
+                device=-1,  # CPU 강제
+                framework="pt"  # PyTorch 명시
             )
             gc.collect()  # 메모리 정리
-            logger.info("✅ 감성 분석 모델 로딩 완료 (CPU)")
+            
+            mem_after = process.memory_info().rss / 1024 / 1024
+            logger.info(f"✅ 감성 분석 모델 로딩 완료 (+{mem_after - mem_before:.1f} MB)")
+            logger.info(f"📊 현재 총 메모리: {mem_after:.1f} MB")
         except Exception as e:
             logger.error(f"❌ 감성 분석 모델 로딩 실패: {e}")
             raise HTTPException(status_code=503, detail="감성 분석 모델을 로딩할 수 없습니다.")
