@@ -31,9 +31,7 @@ def _get_summarizer():
             logger.info("요약 모델 로딩 중...")
             # ✅ DistilBART 사용 (300MB, BART 대비 6배 작음)
             model = AutoModelForSeq2SeqLM.from_pretrained(
-                "sshleifer/distilbart-cnn-12-6",
-                device_map=None,
-                torch_dtype=torch.float32
+                "sshleifer/distilbart-cnn-12-6"
             ).to('cpu')
             model.eval()
             
@@ -59,9 +57,7 @@ def _get_sentiment_analyzer():
             logger.info("감성 분석 모델 로딩 중...")
             # ✅ 모델과 토크나이저를 명시적으로 CPU로 로드
             model = AutoModelForSequenceClassification.from_pretrained(
-                "distilbert-base-uncased-finetuned-sst-2-english",
-                device_map=None,
-                torch_dtype=torch.float32  # dtype으로 변경하면 에러 발생할 수 있으므로 유지
+                "distilbert-base-uncased-finetuned-sst-2-english"
             ).to('cpu')
             model.eval()
             

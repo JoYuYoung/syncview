@@ -11,6 +11,35 @@ Base.metadata.create_all(bind=engine)
 # ✅ FastAPI 앱 생성
 app = FastAPI(title="SyncView Backend")
 
+# ✅ 앱 시작 시 AI 모델 미리 로드
+@app.on_event("startup")
+async def startup_event():
+    """서버 시작 시 모든 AI 모델을 미리 로드"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info("🚀 AI 모델 사전 로드 시작...")
+        
+        # 감성 분석 모델 로드
+        from routes.news import _get_sentiment_analyzer
+        _get_sentiment_analyzer()
+        logger.info("✅ 감성 분석 모델 로드 완료")
+        
+        # 요약 모델 로드
+        from routes.news import _get_summarizer
+        _get_summarizer()
+        logger.info("✅ 요약 모델 로드 완료")
+        
+        # 번역 모델 로드
+        from translator_hf import translate_en_to_ko
+        translate_en_to_ko("test")  # 더미 호출로 모델 로드
+        logger.info("✅ 번역 모델 로드 완료")
+        
+        logger.info("🎉 모든 AI 모델 사전 로드 완료!")
+    except Exception as e:
+        logger.error(f"❌ AI 모델 로드 실패: {e}")
+
 # ✅ CORS 설정 (반드시 다른 Middleware보다 먼저!)
 app.add_middleware(
     CORSMiddleware,
