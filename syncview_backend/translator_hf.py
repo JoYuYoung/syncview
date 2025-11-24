@@ -1,4 +1,4 @@
-# translator_hf.py - NLLB 다국어 번역 모델 (en -> ko)
+# translator_hf.py - Helsinki-NLP opus-mt 번역 모델 (en -> ko)
 import os
 import re
 import torch
@@ -13,12 +13,12 @@ import warnings
 # 로컬 개발: Windows 경로 사용
 # 프로덕션(Render): Hugging Face에서 자동 다운로드
 if os.getenv("RENDER"):  # Render 환경
-    MODEL_NAME = "facebook/nllb-200-distilled-600M"
+    MODEL_NAME = "Helsinki-NLP/opus-mt-en-ko"  # 더 작은 모델 (300MB)
     LOCAL_MODEL_DIR = None
     print(f"[Translator] 프로덕션 모드: Hugging Face에서 자동 다운로드")
 else:  # 로컬 개발
-    LOCAL_MODEL_DIR = Path(r"C:\sync_models\nllb-200-distilled-600M")
-    MODEL_NAME = str(LOCAL_MODEL_DIR) if LOCAL_MODEL_DIR.exists() else "facebook/nllb-200-distilled-600M"
+    LOCAL_MODEL_DIR = Path(r"C:\sync_models\opus-mt-en-ko")
+    MODEL_NAME = str(LOCAL_MODEL_DIR) if LOCAL_MODEL_DIR.exists() else "Helsinki-NLP/opus-mt-en-ko"
     print(f"[Translator] 로컬 모드: MODEL_DIR = {LOCAL_MODEL_DIR}")
 
 # ─────────────────────────────────────────────────────────────
@@ -52,11 +52,7 @@ def _load_model_local_only():
         # Render(프로덕션) 환경: Hugging Face에서 자동 다운로드
         if LOCAL_MODEL_DIR is None or not LOCAL_MODEL_DIR.exists():
             print(f"🌐 Hugging Face에서 모델 다운로드 중: {MODEL_NAME}")
-            _tokenizer = AutoTokenizer.from_pretrained(
-                MODEL_NAME, 
-                src_lang="eng_Latn", 
-                tgt_lang="kor_Hang"
-            )
+            _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
             _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
             _model.to(_get_device())
             _initialized = True
@@ -64,12 +60,7 @@ def _load_model_local_only():
         # 로컬 개발: 로컬 파일에서 로드
         else:
             print(f"📂 로컬 모델 로딩 중: {LOCAL_MODEL_DIR}")
-            _tokenizer = AutoTokenizer.from_pretrained(
-                str(LOCAL_MODEL_DIR), 
-                local_files_only=True, 
-                src_lang="eng_Latn", 
-                tgt_lang="kor_Hang"
-            )
+            _tokenizer = AutoTokenizer.from_pretrained(str(LOCAL_MODEL_DIR), local_files_only=True)
             _model = AutoModelForSeq2SeqLM.from_pretrained(str(LOCAL_MODEL_DIR), local_files_only=True)
             _model.to(_get_device())
             _initialized = True
@@ -113,10 +104,6 @@ def translate_en_to_ko(text: str) -> str:
 
     outs = []
     for chunk in _chunk_text(text):
-        # NLLB는 소스/타깃 언어를 토크나이저에 지정
-        # eng_Latn (영어) -> kor_Hang (한국어)
-        _tokenizer.src_lang = "eng_Latn"
-        
         inputs = _tokenizer(
             chunk,
             return_tensors="pt",
@@ -126,12 +113,8 @@ def translate_en_to_ko(text: str) -> str:
         ).to(_get_device())
 
         with torch.no_grad():
-            # NLLB는 forced_bos_token_id로 타깃 언어 지정
-            # kor_Hang 토큰을 ID로 변환
-            forced_bos_token_id = _tokenizer.convert_tokens_to_ids("kor_Hang")
             generated_tokens = _model.generate(
                 **inputs,
-                forced_bos_token_id=forced_bos_token_id,
                 num_beams=4,
                 max_length=512,
                 early_stopping=True,
