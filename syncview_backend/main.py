@@ -11,42 +11,19 @@ Base.metadata.create_all(bind=engine)
 # ✅ FastAPI 앱 생성
 app = FastAPI(title="SyncView Backend")
 
-# ✅ 앱 시작 시 AI 모델 순차적으로 미리 로드 (메모리 최적화)
+# ✅ 서버 시작 이벤트 (지연 로딩 방식 - 2GB RAM 최적화)
 @app.on_event("startup")
 async def startup_event():
-    """서버 시작 시 모든 AI 모델을 순차적으로 로드 (2GB RAM 최적화)"""
+    """서버 시작 (AI 모델은 첫 요청 시 자동 로드)"""
     import logging
-    import gc
     logger = logging.getLogger(__name__)
     
-    try:
-        logger.info("🚀 AI 모델 순차 로드 시작 (메모리 최적화 모드)...")
-        
-        # 1️⃣ 감성 분석 모델 로드 (가장 자주 사용)
-        logger.info("📥 [1/3] 감성 분석 모델 로딩 중...")
-        from routes.news import _get_sentiment_analyzer
-        _get_sentiment_analyzer()
-        gc.collect()  # 메모리 정리
-        logger.info("✅ [1/3] 감성 분석 모델 로드 완료")
-        
-        # 2️⃣ 요약 모델 로드
-        logger.info("📥 [2/3] 요약 모델 로딩 중...")
-        from routes.news import _get_summarizer
-        _get_summarizer()
-        gc.collect()  # 메모리 정리
-        logger.info("✅ [2/3] 요약 모델 로드 완료")
-        
-        # 3️⃣ 번역 모델 로드
-        logger.info("📥 [3/3] 번역 모델 로딩 중...")
-        from translator_hf import translate_en_to_ko
-        translate_en_to_ko("test")  # 더미 호출로 모델 로드
-        gc.collect()  # 메모리 정리
-        logger.info("✅ [3/3] 번역 모델 로드 완료")
-        
-        logger.info("🎉 모든 AI 모델 순차 로드 완료! (2GB RAM 최적화)")
-    except Exception as e:
-        logger.error(f"❌ AI 모델 로드 실패: {e}")
-        logger.error(f"⚠️ 서버는 계속 실행됩니다. 모델은 첫 요청 시 자동 로드됩니다.")
+    logger.info("🚀 SyncView 백엔드 서버 시작")
+    logger.info("💡 AI 모델은 지연 로딩 방식 (첫 요청 시 자동 로드)")
+    logger.info("   - 첫 번째 감성 분석 요청: 5-10초 소요 (이후 즉시 응답)")
+    logger.info("   - 첫 번째 요약 요청: 5-10초 소요 (이후 즉시 응답)")
+    logger.info("   - 첫 번째 번역 요청: 5-10초 소요 (이후 즉시 응답)")
+    logger.info("✅ 서버 준비 완료")
 
 # ✅ CORS 설정 (반드시 다른 Middleware보다 먼저!)
 app.add_middleware(
