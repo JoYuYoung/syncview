@@ -13,7 +13,7 @@ import warnings
 # 로컬 개발: Windows 경로 사용
 # 프로덕션(Render): Hugging Face에서 자동 다운로드
 if os.getenv("RENDER"):  # Render 환경
-    MODEL_NAME = "Helsinki-NLP/opus-mt-en-ko"  # 더 작은 모델 (300MB)
+    MODEL_NAME = "Helsinki-NLP/opus-mt-tc-big-en-ko"  # 영한 번역 (더 정확한 이름)
     LOCAL_MODEL_DIR = None
     print(f"[Translator] 프로덕션 모드: Hugging Face에서 자동 다운로드")
 else:  # 로컬 개발
