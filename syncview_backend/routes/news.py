@@ -10,6 +10,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import os
+import gc  # 메모리 최적화를 위한 가비지 컬렉션
 
 # ✅ accelerate와 meta device 완전히 비활성화
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
@@ -28,35 +29,37 @@ summarizer = None
 sentiment_analyzer = None
 
 def _get_summarizer():
-    """지연 로딩으로 요약 모델 초기화"""
+    """지연 로딩으로 요약 모델 초기화 (2GB RAM 최적화 - 더 작은 모델)"""
     global summarizer
     if summarizer is None:
         try:
-            logger.info("요약 모델 로딩 중...")
-            # ✅ device_map / low_cpu_mem_usage 없이 깔끔하게 로드
+            logger.info("요약 모델 로딩 중 (경량 버전, ~150MB)...")
+            # ✅ 더 작은 모델 사용: distilbart-cnn-6-6 (12-6보다 50% 작음)
             summarizer = pipeline(
                 "summarization",
-                model="sshleifer/distilbart-cnn-12-6",
-                device=-1  # CPU 강제 (pipeline이 알아서 처리)
+                model="sshleifer/distilbart-cnn-6-6",
+                device=-1  # CPU 강제
             )
-            logger.info("✅ 요약 모델 로딩 완료 (CPU)")
+            gc.collect()  # 메모리 정리
+            logger.info("✅ 요약 모델 로딩 완료 (CPU, 경량 버전)")
         except Exception as e:
             logger.error(f"❌ 요약 모델 로딩 실패: {e}")
             raise HTTPException(status_code=503, detail="요약 모델을 로딩할 수 없습니다.")
     return summarizer
 
 def _get_sentiment_analyzer():
-    """지연 로딩으로 감성 분석 모델 초기화"""
+    """지연 로딩으로 감성 분석 모델 초기화 (2GB RAM 최적화)"""
     global sentiment_analyzer
     if sentiment_analyzer is None:
         try:
-            logger.info("감성 분석 모델 로딩 중...")
+            logger.info("감성 분석 모델 로딩 중 (~268MB)...")
             # ✅ device_map / low_cpu_mem_usage 없이 깔끔하게 로드
             sentiment_analyzer = pipeline(
                 "sentiment-analysis",
                 model="distilbert-base-uncased-finetuned-sst-2-english",
                 device=-1  # CPU 강제 (pipeline이 알아서 처리)
             )
+            gc.collect()  # 메모리 정리
             logger.info("✅ 감성 분석 모델 로딩 완료 (CPU)")
         except Exception as e:
             logger.error(f"❌ 감성 분석 모델 로딩 실패: {e}")

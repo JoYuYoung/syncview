@@ -18,11 +18,15 @@ async def startup_event():
     import logging
     logger = logging.getLogger(__name__)
     
-    logger.info("🚀 SyncView 백엔드 서버 시작")
+    logger.info("🚀 SyncView 백엔드 서버 시작 (2GB RAM 최적화)")
+    logger.info("💡 경량 AI 모델 사용 (총 메모리: ~518MB)")
+    logger.info("   - 번역: Helsinki-NLP/opus-mt-en-ko (~100MB)")
+    logger.info("   - 감성: distilbert-sst-2 (~268MB)")
+    logger.info("   - 요약: distilbart-cnn-6-6 (~150MB)")
     logger.info("💡 AI 모델은 지연 로딩 방식 (첫 요청 시 자동 로드)")
     logger.info("   - 첫 번째 감성 분석 요청: 5-10초 소요 (이후 즉시 응답)")
-    logger.info("   - 첫 번째 요약 요청: 5-10초 소요 (이후 즉시 응답)")
-    logger.info("   - 첫 번째 번역 요청: 5-10초 소요 (이후 즉시 응답)")
+    logger.info("   - 첫 번째 요약 요청: 3-5초 소요 (이후 즉시 응답)")
+    logger.info("   - 첫 번째 번역 요청: 3-5초 소요 (이후 즉시 응답)")
     logger.info("✅ 서버 준비 완료")
 
 # ✅ CORS 설정 (반드시 다른 Middleware보다 먼저!)

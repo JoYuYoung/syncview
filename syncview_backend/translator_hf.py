@@ -2,20 +2,21 @@
 import os
 import re
 import torch
+import gc  # 메모리 최적화를 위한 가비지 컬렉션
 from functools import lru_cache
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import warnings
 
 # ─────────────────────────────────────────────────────────────
-# 1️⃣ 모델 경로 설정
+# 1️⃣ 모델 경로 설정 (2GB RAM 최적화 - 더 작은 모델 사용)
 # ─────────────────────────────────────────────────────────────
 # 로컬 개발: Windows 경로 사용
 # 프로덕션(Render): Hugging Face에서 자동 다운로드
 if os.getenv("RENDER"):  # Render 환경
-    MODEL_NAME = "Helsinki-NLP/opus-mt-tc-big-en-ko"  # 영한 번역 (더 정확한 이름)
+    MODEL_NAME = "Helsinki-NLP/opus-mt-en-ko"  # 영한 번역 (경량 버전, ~100MB)
     LOCAL_MODEL_DIR = None
-    print(f"[Translator] 프로덕션 모드: Hugging Face에서 자동 다운로드")
+    print(f"[Translator] 프로덕션 모드 (2GB RAM 최적화): Hugging Face에서 자동 다운로드")
 else:  # 로컬 개발
     LOCAL_MODEL_DIR = Path(r"C:\sync_models\opus-mt-en-ko")
     MODEL_NAME = str(LOCAL_MODEL_DIR) if LOCAL_MODEL_DIR.exists() else "Helsinki-NLP/opus-mt-en-ko"
@@ -43,13 +44,14 @@ def _load_model_local_only():
     try:
         # Render(프로덕션) 환경: Hugging Face에서 자동 다운로드
         if LOCAL_MODEL_DIR is None or not LOCAL_MODEL_DIR.exists():
-            print(f"🌐 Hugging Face에서 모델 다운로드 중: {MODEL_NAME}")
+            print(f"🌐 Hugging Face에서 모델 다운로드 중: {MODEL_NAME} (~100MB)")
             _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
             # ✅ 기본 CPU 로드 (Render는 CPU만 있음, .to() 불필요)
             _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
             # CPU는 기본값이므로 .to() 호출 생략
+            gc.collect()  # 메모리 정리
             _initialized = True
-            print(f"✅ 번역 모델 로딩 완료 (온라인): {MODEL_NAME}")
+            print(f"✅ 번역 모델 로딩 완료 (온라인, 경량 버전): {MODEL_NAME}")
         # 로컬 개발: 로컬 파일에서 로드
         else:
             print(f"📂 로컬 모델 로딩 중: {LOCAL_MODEL_DIR}")
@@ -57,6 +59,7 @@ def _load_model_local_only():
             # ✅ 기본 CPU 로드 (.to() 불필요)
             _model = AutoModelForSeq2SeqLM.from_pretrained(str(LOCAL_MODEL_DIR), local_files_only=True)
             # CPU는 기본값이므로 .to() 호출 생략
+            gc.collect()  # 메모리 정리
             _initialized = True
             print(f"✅ 번역 모델 로딩 완료 (로컬): {LOCAL_MODEL_DIR}")
     except Exception as e:
