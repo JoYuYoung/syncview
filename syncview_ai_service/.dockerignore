@@ -1,0 +1,21 @@
+# Docker 빌드에서 제외할 파일/폴더
+
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.env
+.venv
+venv/
+*.log
+.git
+.gitignore
+README.md
+.DS_Store
+

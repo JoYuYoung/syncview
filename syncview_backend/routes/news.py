@@ -1,101 +1,136 @@
 from fastapi import APIRouter, HTTPException
 import feedparser
 import requests
-import torch
 from bs4 import BeautifulSoup
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM, AutoModelForSequenceClassification
 import logging
 from typing import List, Dict, Any
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import os
-import gc  # 메모리 최적화를 위한 가비지 컬렉션
-import psutil  # 메모리 사용량 모니터링
-import time  # API 재시도 대기용
-
-# ✅ accelerate와 meta device 완전히 비활성화
-os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
-os.environ["ACCELERATE_USE_CPU"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
-
-# ✅ torch 기본 device를 CPU로 강제 설정
-torch.set_default_device('cpu')
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# ✅ 감성 분석 모델만 로컬 사용
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Cloud Run AI 서비스 공통 함수
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def call_ai_service(path: str, payload: dict, timeout: int = 60) -> dict:
+    """
+    Cloud Run AI 서비스로 HTTP 요청 전달 (공통 프록시 함수)
+    
+    Args:
+        path: API 경로 (예: "/sentiment", "/summarize", "/translate")
+        payload: 요청 데이터 (JSON)
+        timeout: 타임아웃 (초)
+    
+    Returns:
+        AI 서비스 응답 (JSON)
+    
+    Raises:
+        HTTPException: AI 서비스 호출 실패 시
+    """
+    # 환경 변수에서 AI 서비스 URL 읽기
+    AI_SERVICE_URL = os.getenv("AI_SERVICE_URL")
+    
+    if not AI_SERVICE_URL:
+        logger.error("❌ AI_SERVICE_URL 환경 변수가 설정되지 않았습니다")
+        raise HTTPException(
+            status_code=500,
+            detail="AI 서비스가 구성되지 않았습니다. 관리자에게 문의하세요."
+        )
+    
+    # URL 구성
+    full_url = f"{AI_SERVICE_URL.rstrip('/')}{path}"
+    
+    try:
+        logger.info(f"🔄 Cloud Run AI 서비스 호출: {path}")
+        logger.debug(f"   URL: {full_url}")
+        logger.debug(f"   Payload: {payload}")
+        
+        # Cloud Run AI 서비스로 POST 요청
+        response = requests.post(
+            full_url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=timeout
+        )
+        
+        # 응답 상태 코드 확인
+        if response.status_code != 200:
+            error_detail = f"AI 서비스 오류 (HTTP {response.status_code})"
+            try:
+                error_body = response.json()
+                error_detail = error_body.get("detail", error_detail)
+            except:
+                error_detail = response.text or error_detail
+            
+            logger.error(f"❌ Cloud Run AI 서비스 오류: {error_detail}")
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=error_detail
+            )
+        
+        # 성공 응답 반환
+        result = response.json()
+        logger.info(f"✅ Cloud Run AI 서비스 응답 완료: {path}")
+        return result
+        
+    except requests.exceptions.Timeout:
+        logger.error(f"⏱️ Cloud Run AI 서비스 타임아웃: {path}")
+        raise HTTPException(
+            status_code=504,
+            detail=f"AI 서비스 요청 시간 초과 ({timeout}초)"
+        )
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Cloud Run AI 서비스 호출 실패: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"AI 서비스에 연결할 수 없습니다: {str(e)}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 예상치 못한 오류: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI 서비스 호출 중 오류 발생: {str(e)}"
+        )
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 로컬 AI 모델 로딩 함수 (USE_LOCAL_AI=true 일 때만 사용)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 sentiment_analyzer = None
 
-# 🌐 Hugging Face Inference API 설정 (요약만 사용)
-HF_API_URL_SUMMARIZE = "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6"
-HF_API_TOKEN = os.getenv("HF_API_TOKEN", "")  # 환경 변수에서 토큰 읽기 (선택사항, 무료 한도로도 충분)
-
-def _call_hf_api(api_url: str, payload: dict, retry_count: int = 3) -> dict:
-    """Hugging Face Inference API 호출 (재시도 로직 포함)"""
-    headers = {"Content-Type": "application/json"}
-    if HF_API_TOKEN:
-        headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
-    
-    for attempt in range(retry_count):
-        try:
-            response = requests.post(api_url, headers=headers, json=payload, timeout=30)
-            
-            # 모델 로딩 중인 경우 (503)
-            if response.status_code == 503:
-                try:
-                    result = response.json()
-                    if "estimated_time" in result:
-                        wait_time = min(result["estimated_time"], 20)  # 최대 20초
-                        logger.info(f"⏳ 요약 모델 로딩 중... {wait_time}초 대기 (시도 {attempt + 1}/{retry_count})")
-                        time.sleep(wait_time)
-                        continue
-                except:
-                    # JSON 파싱 실패 시 기본 대기
-                    if attempt < retry_count - 1:
-                        logger.info(f"⏳ 재시도 중... (시도 {attempt + 1}/{retry_count})")
-                        time.sleep(5)
-                        continue
-            
-            response.raise_for_status()
-            return response.json()
-            
-        except requests.exceptions.Timeout:
-            logger.warning(f"⏱️ 요약 API 타임아웃 (시도 {attempt + 1}/{retry_count})")
-            if attempt == retry_count - 1:
-                raise HTTPException(status_code=504, detail="요약 API 요청 시간 초과")
-            time.sleep(2)  # 재시도 전 대기
-        except requests.exceptions.RequestException as e:
-            logger.error(f"❌ 요약 API 호출 실패 (시도 {attempt + 1}/{retry_count}): {e}")
-            if attempt == retry_count - 1:
-                raise HTTPException(status_code=503, detail=f"요약 API 호출 실패: {str(e)}")
-            time.sleep(2)  # 재시도 전 대기
-    
-    raise HTTPException(status_code=503, detail="요약 API 호출 최대 재시도 초과")
-
 def _get_sentiment_analyzer():
-    """감성 분석 모델 초기화 (서버 시작 시 사전 로딩 - 가장 중요한 기능)"""
+    """
+    감성 분석 모델 초기화 (로컬 모드 전용 - USE_LOCAL_AI=true)
+    프로덕션에서는 사용하지 않음
+    """
     global sentiment_analyzer
     if sentiment_analyzer is None:
         try:
+            import torch
+            from transformers import pipeline
+            import gc
+            import psutil
+            
             process = psutil.Process(os.getpid())
             mem_before = process.memory_info().rss / 1024 / 1024
             
             logger.info("🔄 감성 분석 모델 로딩 중 (~268MB)...")
-            # ✅ device_map / low_cpu_mem_usage 없이 깔끔하게 로드
             sentiment_analyzer = pipeline(
                 "sentiment-analysis",
                 model="distilbert-base-uncased-finetuned-sst-2-english",
-                device=-1,  # CPU 강제
-                framework="pt"  # PyTorch 명시
+                device=-1,
+                framework="pt"
             )
-            gc.collect()  # 메모리 정리
+            gc.collect()
             
             mem_after = process.memory_info().rss / 1024 / 1024
             logger.info(f"✅ 감성 분석 모델 로딩 완료 (+{mem_after - mem_before:.1f} MB)")
-            logger.info(f"📊 현재 총 메모리: {mem_after:.1f} MB")
         except Exception as e:
             logger.error(f"❌ 감성 분석 모델 로딩 실패: {e}")
             raise HTTPException(status_code=503, detail="감성 분석 모델을 로딩할 수 없습니다.")
@@ -302,43 +337,46 @@ def get_news_detail(url: str):
         raise HTTPException(status_code=500, detail=f"뉴스 본문을 가져올 수 없습니다: {str(e)}")
 
 # -------------------------------
-# 3. 기사 요약하기 (Hugging Face Inference API 사용)
+# 3. 기사 요약하기 (Cloud Run AI 서비스)
 # -------------------------------
 @router.get("/summary")
 def summarize_news(url: str):
+    """
+    뉴스 기사 요약 (Cloud Run AI 서비스로 프록시)
+    
+    Args:
+        url: 요약할 뉴스 기사 URL
+    
+    Returns:
+        {"url": str, "summary": str}
+    """
     try:
-        logger.info(f"🔄 뉴스 요약 요청 (외부 API): {url}")
+        logger.info(f"🔄 뉴스 요약 요청: {url}")
         
         # 웹페이지 내용 가져오기
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
 
         paragraphs = soup.find_all("p")
-        content = " ".join([p.get_text() for p in paragraphs])[:1024]  # API 제한 고려
+        content = " ".join([p.get_text() for p in paragraphs])[:1024]  # 최대 1024자
 
         if not content or len(content.strip()) < 50:
             logger.warning("뉴스 본문이 너무 짧거나 없습니다.")
             return {"url": url, "summary": "본문을 요약할 수 없습니다. 내용이 너무 짧거나 접근할 수 없습니다."}
 
-        # Hugging Face Inference API 호출
+        # Cloud Run AI 서비스로 요약 요청
         payload = {
-            "inputs": content,
-            "parameters": {
-                "max_length": 130,
-                "min_length": 30,
-                "do_sample": False
-            }
+            "text": content,
+            "max_length": 130,
+            "min_length": 30
         }
         
-        result = _call_hf_api(HF_API_URL_SUMMARIZE, payload)
+        result = call_ai_service("/summarize", payload, timeout=60)
         
-        # API 응답 처리
-        if isinstance(result, list) and len(result) > 0:
-            summary_text = result[0].get("summary_text", "요약 실패")
-        else:
-            summary_text = "요약을 생성할 수 없습니다."
+        # 응답 처리
+        summary_text = result.get("summary", "요약을 생성할 수 없습니다.")
 
-        logger.info("✅ 뉴스 요약 완료 (외부 API)")
+        logger.info("✅ 뉴스 요약 완료 (Cloud Run AI)")
         return {"url": url, "summary": summary_text}
         
     except HTTPException:
@@ -351,40 +389,52 @@ def summarize_news(url: str):
         )
 
 # -------------------------------
-# 4. 감성 분석 API
+# 4. 감성 분석 API (Cloud Run AI 서비스)
 # -------------------------------
 @router.post("/sentiment")
 def analyze_sentiment(data: dict):
     """
-    텍스트의 감성을 분석합니다.
+    텍스트의 감성을 분석합니다 (Cloud Run AI 서비스로 프록시)
+    
     요청 본문: {"text": "분석할 텍스트"}
-    응답: {"sentiment": "positive" | "negative" | "neutral", "score": 0.95}
+    응답: {"sentiment": "positive" | "negative" | "neutral", "score": 0.95, "label": "긍정"}
     """
     try:
         text = data.get("text", "")
         if not text or len(text.strip()) < 10:
             return {"sentiment": "neutral", "score": 0.5, "label": "중립"}
         
-        # 감성 분석 모델 로딩 및 실행
-        analyzer = _get_sentiment_analyzer()
-        result = analyzer(text[:512])[0]  # 최대 512 토큰
+        # USE_LOCAL_AI 환경 변수 확인 (로컬 개발 모드)
+        USE_LOCAL_AI = os.getenv("USE_LOCAL_AI", "false").lower() == "true"
         
-        # POSITIVE/NEGATIVE를 한국어로 변환
-        sentiment_map = {
-            "POSITIVE": {"sentiment": "positive", "label": "긍정"},
-            "NEGATIVE": {"sentiment": "negative", "label": "부정"}
-        }
+        if USE_LOCAL_AI:
+            # 로컬 모델 사용 (개발/테스트)
+            logger.info("🏠 감성 분석: 로컬 모델 사용")
+            analyzer = _get_sentiment_analyzer()
+            result = analyzer(text[:512])[0]
+            
+            sentiment_map = {
+                "POSITIVE": {"sentiment": "positive", "label": "긍정"},
+                "NEGATIVE": {"sentiment": "negative", "label": "부정"}
+            }
+            sentiment_info = sentiment_map.get(result["label"], {"sentiment": "neutral", "label": "중립"})
+            
+            return {
+                "sentiment": sentiment_info["sentiment"],
+                "label": sentiment_info["label"],
+                "score": round(result["score"], 2)
+            }
+        else:
+            # Cloud Run AI 서비스 사용 (프로덕션)
+            logger.info("☁️  감성 분석: Cloud Run AI 서비스 사용")
+            payload = {"text": text}
+            result = call_ai_service("/sentiment", payload, timeout=30)
+            return result
         
-        sentiment_info = sentiment_map.get(result["label"], {"sentiment": "neutral", "label": "중립"})
-        
-        return {
-            "sentiment": sentiment_info["sentiment"],
-            "label": sentiment_info["label"],
-            "score": round(result["score"], 2)
-        }
-        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"감성 분석 실패: {e}")
+        logger.error(f"❌ 감성 분석 실패: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"감성 분석 중 오류가 발생했습니다: {str(e)}"

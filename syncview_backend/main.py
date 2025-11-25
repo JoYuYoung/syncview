@@ -11,47 +11,55 @@ Base.metadata.create_all(bind=engine)
 # ✅ FastAPI 앱 생성
 app = FastAPI(title="SyncView Backend")
 
-# ✅ 서버 시작 이벤트 (2GB RAM 졸업작품 최적화)
+# ✅ 서버 시작 이벤트 (Cloud Run AI 서비스 연동 모드)
 @app.on_event("startup")
 async def startup_event():
-    """서버 시작 (감성 분석만 사전 로딩, 나머지는 지연 로딩)"""
+    """서버 시작 (로컬 AI vs Cloud Run AI 분기 처리)"""
     import logging
-    import psutil
     import os
     logger = logging.getLogger(__name__)
     
+    # 환경 변수: USE_LOCAL_AI (기본값: false)
+    # "true"로 설정하면 로컬에서 AI 모델 로딩 (개발/테스트용)
+    # 설정하지 않으면 Cloud Run AI 서비스 사용 (프로덕션)
+    USE_LOCAL_AI = os.getenv("USE_LOCAL_AI", "false").lower() == "true"
+    
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info("🎓 SyncView 백엔드 서버 시작 (졸업작품 최적화 v2)")
+    logger.info("🚀 SyncView 백엔드 서버 시작")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
-    # 시작 메모리 측정
-    process = psutil.Process(os.getpid())
-    mem_before = process.memory_info().rss / 1024 / 1024  # MB
-    logger.info(f"📊 시작 메모리: {mem_before:.1f} MB")
-    
-    logger.info("💡 AI 모델 전략 (하이브리드 방식):")
-    logger.info("   ✅ 감성 분석: 로컬 모델 사전 로딩 (~268MB) - 가장 중요")
-    logger.info("   🌐 요약: Hugging Face Inference API (메모리 0MB)")
-    logger.info("   🌐 번역: Hugging Face Inference API (메모리 0MB)")
-    logger.info("   💾 예상 총 메모리: ~768MB (2GB 안정 운영)")
-    
-    # 감성 분석 모델만 사전 로딩 (가장 중요하고 자주 사용됨)
-    try:
-        logger.info("🔄 감성 분석 모델 로딩 중...")
-        from routes.news import _get_sentiment_analyzer
-        _get_sentiment_analyzer()
+    if USE_LOCAL_AI:
+        # ✅ 로컬 AI 모델 사용 (개발/테스트 환경)
+        logger.info("🏠 AI 모드: 로컬 모델 (USE_LOCAL_AI=true)")
+        logger.info("💡 감성 분석 모델을 로컬에서 로딩합니다...")
         
-        mem_after = process.memory_info().rss / 1024 / 1024  # MB
-        logger.info(f"✅ 감성 분석 모델 로딩 완료 (+{mem_after - mem_before:.1f} MB)")
-        logger.info(f"📊 현재 메모리: {mem_after:.1f} MB / 2048 MB")
-        logger.info(f"💾 메모리 여유: {2048 - mem_after:.0f} MB (충분!)")
-    except Exception as e:
-        logger.error(f"❌ 감성 분석 모델 로딩 실패: {e}")
-        logger.warning("⚠️  감성 분석 기능이 작동하지 않을 수 있습니다")
+        try:
+            import psutil
+            process = psutil.Process(os.getpid())
+            mem_before = process.memory_info().rss / 1024 / 1024
+            
+            logger.info("🔄 감성 분석 모델 로딩 중... (~268MB)")
+            from routes.news import _get_sentiment_analyzer
+            _get_sentiment_analyzer()
+            
+            mem_after = process.memory_info().rss / 1024 / 1024
+            logger.info(f"✅ 감성 분석 모델 로딩 완료 (+{mem_after - mem_before:.1f} MB)")
+            logger.info(f"📊 현재 메모리: {mem_after:.1f} MB")
+        except Exception as e:
+            logger.error(f"❌ 로컬 AI 모델 로딩 실패: {e}")
+            logger.warning("⚠️  감성 분석 기능이 작동하지 않을 수 있습니다")
+    else:
+        # ☁️ Cloud Run AI 서비스 사용 (프로덕션 환경)
+        logger.info("☁️  AI 모드: Cloud Run 마이크로서비스 (USE_LOCAL_AI=false)")
+        logger.info("💡 AI 기능 전략:")
+        logger.info("   - 감성 분석: Cloud Run AI 서비스 → 메모리 0MB")
+        logger.info("   - 요약: Hugging Face Inference API → 메모리 0MB")
+        logger.info("   - 번역: Hugging Face Inference API → 메모리 0MB")
+        logger.info("   - 💾 Render 메모리 사용량: ~100MB (AI 모델 없음)")
+        logger.info("   - 🎯 안정적인 2GB RAM 운영")
     
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info("✅ 서버 준비 완료 - 하이브리드 AI 전략 (로컬 + 외부 API)")
-    logger.info("✅ 2GB RAM 안정 운영 모드 / 메모리 걱정 없음!")
+    logger.info("✅ 서버 준비 완료!")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 # ✅ CORS 설정 (반드시 다른 Middleware보다 먼저!)
