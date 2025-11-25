@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from database import engine
 from models import Base
+import os
+import secrets
 from routes import auth, news, translate, bookmark, subscription, analytics
 
 # ✅ DB 테이블 생성
@@ -73,7 +75,23 @@ app.add_middleware(
 )
 
 # ✅ Session Middleware 추가 (OAuth 사용을 위해 필요)
-app.add_middleware(SessionMiddleware, secret_key="your-secret-key-change-this-in-production")
+# 환경 변수에서 SESSION_SECRET 읽기 (없으면 자동 생성, 단 재시작 시 세션 무효화됨)
+SESSION_SECRET = os.getenv("SESSION_SECRET")
+if not SESSION_SECRET:
+    # 프로덕션에서는 반드시 환경 변수로 설정해야 함
+    SESSION_SECRET = secrets.token_urlsafe(32)
+    if os.getenv("RENDER"):  # Render 환경에서만 경고
+        import logging
+        logging.warning("⚠️  SESSION_SECRET 환경 변수가 설정되지 않았습니다. Google OAuth가 작동하지 않을 수 있습니다.")
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    session_cookie="syncview_session",  # 쿠키 이름
+    max_age=3600 * 24 * 7,  # 7일
+    same_site="lax",  # CSRF 보호
+    https_only=bool(os.getenv("RENDER"))  # Render에서만 HTTPS 쿠키
+)
 
 # ✅ 라우터 등록
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
