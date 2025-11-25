@@ -512,7 +512,13 @@ class RecommendRequest(BaseModel):
 @router.post("/recommend")
 def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
     """
-    사용자 맞춤 추천 뉴스 4개 반환 (관심사 기반 1개 + 인기 급상승 3개)
+    사용자 맞춤 추천 뉴스 5개 반환 (관심사 기반 2개 + 인기 뉴스 3개)
+    
+    추천 알고리즘:
+    1. 관심사 기반 2개: 사용자 topic과 키워드 매칭 점수 높은 순
+    2. 인기 뉴스 3개: 최신성 + 긍정 감성 점수 높은 순 (score 대체)
+    3. 중복 제거: URL 기준
+    4. 총 5개 유지
     """
     try:
         user_id = data.user_id
@@ -523,7 +529,7 @@ def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
             return {"recommended": []}
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 1. 관심사 기반 추천 1개
+        # 1. 관심사 기반 추천 2개
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         topic_keywords = {
             "정치": ["election", "government", "politics", "minister", "president", "policy", "vote", "parliament", "congress"],
@@ -533,7 +539,7 @@ def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
             "문화": ["culture", "movie", "music", "art", "entertainment", "film", "celebrity", "festival", "book", "theater"]
         }
         
-        interest_based_article = None
+        interest_based_articles = []
         if topic and topic in topic_keywords:
             keywords = topic_keywords[topic]
             
@@ -553,35 +559,46 @@ def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
                         "score": interest_score
                     })
             
-            # 관심사 매칭 점수가 가장 높은 기사 1개 선택
+            # 관심사 매칭 점수가 높은 순으로 정렬 후 상위 2개 선택
             if scored_for_interest:
                 scored_for_interest.sort(key=lambda x: x["score"], reverse=True)
-                interest_based_article = {
-                    **scored_for_interest[0]["article"],
+                interest_based_articles = [
+                    {
+                        **item["article"],
+                        "recommendation_reason": "interest"
+                    }
+                    for item in scored_for_interest[:2]
+                ]
+        
+        # 관심사 기반 기사를 찾지 못한 경우 첫 2개 기사 사용
+        if not interest_based_articles:
+            interest_based_articles = [
+                {
+                    **articles[0],
                     "recommendation_reason": "interest"
-                }
-        
-        # 관심사 기반 기사를 찾지 못한 경우 첫 번째 기사 사용
-        if not interest_based_article:
-            interest_based_article = {
-                **articles[0],
-                "recommendation_reason": "interest"
-            }
+                },
+                {
+                    **articles[1],
+                    "recommendation_reason": "interest"
+                } if len(articles) > 1 else None
+            ]
+            interest_based_articles = [a for a in interest_based_articles if a is not None]
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 2. 인기 급상승 뉴스 3개 (최신 + 긍정적 감성)
+        # 2. 인기 뉴스 3개 (최신성 + 긍정 감성 = score 대체)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        trending_candidates = []
-        interest_url = interest_based_article.get("url")
+        # 이미 선택된 관심사 기반 뉴스 URL 수집
+        selected_urls = {article.get("url") for article in interest_based_articles}
         
+        popular_candidates = []
         for article in articles:
-            # 이미 관심사 기반으로 선택된 기사는 제외
-            if article.get("url") == interest_url:
+            # 이미 관심사 기반으로 선택된 기사는 제외 (중복 제거)
+            if article.get("url") in selected_urls:
                 continue
             
             score = 0.0
             
-            # 최신성 점수
+            # 최신성 점수 (published_at 기준)
             published_str = article.get("published", "")
             if published_str:
                 try:
@@ -609,34 +626,47 @@ def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
                 score += 5.0
             elif sentiment == "neutral":
                 score += 2.0
+            # negative는 점수 추가 안 함
             
-            trending_candidates.append({
+            popular_candidates.append({
                 "article": article,
                 "score": score
             })
         
         # 점수 높은 순으로 정렬 후 상위 3개 선택
-        trending_candidates.sort(key=lambda x: x["score"], reverse=True)
-        trending_articles = [
+        popular_candidates.sort(key=lambda x: x["score"], reverse=True)
+        popular_articles = [
             {
                 **item["article"],
                 "recommendation_reason": "trending"
             }
-            for item in trending_candidates[:3]
+            for item in popular_candidates[:3]
         ]
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 최종 추천 목록: 관심사 1개 + 인기 급상승 3개
+        # 최종 추천 목록: 관심사 2개 + 인기 뉴스 3개 = 총 5개
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        recommended = [interest_based_article] + trending_articles
+        recommended = interest_based_articles + popular_articles
         
-        logger.info(f"추천 뉴스 {len(recommended)}개 생성 완료 (user_id={user_id}, topic={topic})")
-        logger.info(f"  - 관심사 기반: 1개")
-        logger.info(f"  - 인기 급상승: {len(trending_articles)}개")
+        # 최종 중복 체크 (URL 기준)
+        seen_urls = set()
+        unique_recommended = []
+        for item in recommended:
+            url = item.get("url")
+            if url not in seen_urls:
+                unique_recommended.append(item)
+                seen_urls.add(url)
+        
+        # 최대 5개로 제한
+        final_recommended = unique_recommended[:5]
+        
+        logger.info(f"추천 뉴스 {len(final_recommended)}개 생성 완료 (user_id={user_id}, topic={topic})")
+        logger.info(f"  - 관심사 기반: {len(interest_based_articles)}개")
+        logger.info(f"  - 인기 뉴스: {len(popular_articles)}개")
         
         return {
-            "recommended": recommended,
-            "total": len(recommended)
+            "recommended": final_recommended,
+            "total": len(final_recommended)
         }
         
     except Exception as e:

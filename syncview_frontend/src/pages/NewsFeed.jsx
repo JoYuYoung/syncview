@@ -344,11 +344,11 @@ export default function NewsFeed({ user }) {
     } catch (err) {
       console.error("추천 뉴스 가져오기 실패:", err);
       console.error("상세 에러:", err.message);
-      // 실패 시 기본 추천 (관심사 1개 + 인기 급상승 3개)
-      const defaultRecommended = articles.slice(0, 4).map((article, idx) => ({
+      // 실패 시 기본 추천 (관심사 2개 + 인기 뉴스 3개)
+      const defaultRecommended = articles.slice(0, 5).map((article, idx) => ({
         ...article,
         isRecommended: true,
-        recommendReason: idx === 0 ? "interest" : "trending"
+        recommendReason: idx < 2 ? "interest" : "trending"
       }));
       setRecommendedArticles(defaultRecommended);
     } finally {
