@@ -126,8 +126,9 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             db.refresh(user)
         
         # 프론트엔드로 리다이렉트 (사용자 정보를 URL 파라미터로 전달)
+        # /auth/callback 대신 / (홈)로 리디렉트하여 404 방지
         return RedirectResponse(
-            url=f"{FRONTEND_URL}/auth/callback?user_id={user.id}&email={user.email}&username={user.username}"
+            url=f"{FRONTEND_URL}/?google_auth=success&user_id={user.id}&email={user.email}&username={user.username}"
         )
         
     except Exception as e:

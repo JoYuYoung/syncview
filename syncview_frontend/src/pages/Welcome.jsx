@@ -1,8 +1,36 @@
-import React from "react";
+import React, { useEffect } from "react";
 import Navbar from "../components/Navbar";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 export default function Welcome({ user, setUser }) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  
+  // Google OAuth 콜백 처리
+  useEffect(() => {
+    const googleAuth = searchParams.get("google_auth");
+    const userId = searchParams.get("user_id");
+    const email = searchParams.get("email");
+    const username = searchParams.get("username");
+    
+    if (googleAuth === "success" && userId && email) {
+      // Google 로그인 성공 → localStorage 저장 및 로그인 처리
+      const userData = {
+        id: parseInt(userId),
+        email: email,
+        username: username || email.split("@")[0]
+      };
+      
+      localStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+      
+      console.log("✅ Google 로그인 성공:", userData);
+      
+      // URL 파라미터 제거하고 Welcome 페이지 유지 (깔끔한 URL)
+      navigate("/", { replace: true });
+    }
+  }, [searchParams, setUser, navigate]);
+  
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-100 to-indigo-100 relative overflow-hidden">
       {/* 배경 장식 요소 */}
