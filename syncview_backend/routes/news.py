@@ -1,13 +1,17 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 import feedparser
 import requests
 from bs4 import BeautifulSoup
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import os
+from sqlalchemy.orm import Session
+from database import get_db
+from models import ReadArticle
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -499,4 +503,136 @@ def find_similar_articles(data: dict):
         raise HTTPException(
             status_code=500,
             detail=f"유사 기사 분석 중 오류가 발생했습니다: {str(e)}"
+        )
+
+# -------------------------------
+# 6. 추천 뉴스 API (TOP 10 중 필터링)
+# -------------------------------
+class RecommendRequest(BaseModel):
+    user_id: int
+    topic: Optional[str] = None  # 사용자 관심 주제 (정치, 경제, 기술, 스포츠, 문화)
+    articles: List[Dict[str, Any]]  # TOP 10 뉴스 목록
+
+@router.post("/recommend")
+def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
+    """
+    TOP 10 뉴스 중에서 사용자 맞춤 추천 뉴스 반환
+    
+    추천 알고리즘:
+    1. 관심사 기반: 사용자 topic과 뉴스 제목 키워드 매칭
+    2. 읽은 기사 기반: 사용자 읽기 기록과 TF-IDF 유사도 분석
+    3. 점수 합산 후 상위 3-5개 반환
+    """
+    try:
+        user_id = data.user_id
+        topic = data.topic
+        articles = data.articles
+        
+        if not articles or len(articles) == 0:
+            return {"recommended": []}
+        
+        # 각 뉴스에 추천 점수 부여
+        scored_articles = []
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 1. 관심사 기반 점수 (topic 키워드 매칭)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        topic_keywords = {
+            "정치": ["election", "government", "politics", "minister", "president", "policy", "vote", "parliament", "congress"],
+            "경제": ["economy", "market", "finance", "stock", "trade", "business", "investment", "inflation", "GDP", "bank"],
+            "기술": ["technology", "AI", "software", "digital", "innovation", "tech", "smartphone", "computer", "cyber", "robot", "space"],
+            "스포츠": ["sports", "football", "soccer", "basketball", "olympic", "game", "player", "team", "match", "tournament"],
+            "문화": ["culture", "movie", "music", "art", "entertainment", "film", "celebrity", "festival", "book", "theater"]
+        }
+        
+        for article in articles:
+            score = 0.0
+            recommendation_reason = None
+            
+            title = article.get("title", "").lower()
+            summary = article.get("summary", "").lower()
+            content = f"{title} {summary}"
+            
+            # 관심사 키워드 매칭 점수
+            interest_score = 0.0
+            if topic and topic in topic_keywords:
+                keywords = topic_keywords[topic]
+                matched_keywords = sum(1 for keyword in keywords if keyword.lower() in content)
+                interest_score = matched_keywords / len(keywords)  # 0~1 점수
+                
+                if interest_score > 0.3:  # 30% 이상 매칭 시
+                    score += interest_score * 10  # 가중치 10
+                    recommendation_reason = "interest"
+            
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 2. 읽은 기사 기반 점수 (TF-IDF 유사도)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            history_score = 0.0
+            try:
+                # 사용자가 읽은 최근 10개 기사 가져오기
+                read_articles = db.query(ReadArticle).filter(
+                    ReadArticle.user_id == user_id
+                ).order_by(ReadArticle.read_at.desc()).limit(10).all()
+                
+                if read_articles and len(read_articles) > 0:
+                    # 읽은 기사 제목들
+                    read_titles = [ra.article_title for ra in read_articles if ra.article_title]
+                    
+                    if read_titles:
+                        # TF-IDF 벡터화
+                        all_texts = read_titles + [content]
+                        vectorizer = TfidfVectorizer(stop_words='english', max_features=500)
+                        tfidf_matrix = vectorizer.fit_transform(all_texts)
+                        
+                        # 현재 기사와 읽은 기사들의 유사도 계산
+                        current_vector = tfidf_matrix[-1:]  # 마지막 (현재 기사)
+                        read_vectors = tfidf_matrix[:-1]    # 나머지 (읽은 기사들)
+                        similarities = cosine_similarity(current_vector, read_vectors)[0]
+                        
+                        # 최대 유사도를 점수로 사용
+                        max_similarity = float(np.max(similarities))
+                        history_score = max_similarity
+                        
+                        if max_similarity > 0.3:  # 30% 이상 유사 시
+                            score += history_score * 10  # 가중치 10
+                            if recommendation_reason is None:
+                                recommendation_reason = "history"
+                            elif recommendation_reason == "interest":
+                                recommendation_reason = "both"  # 관심사 + 읽기 패턴
+            except Exception as e:
+                logger.warning(f"읽기 기록 분석 중 오류 (user_id={user_id}): {e}")
+            
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 3. 기본 점수 (모든 기사에 부여)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            score += 1.0  # 기본 점수 (0점인 기사가 없도록)
+            
+            # 추천 이유가 없으면 기본값
+            if recommendation_reason is None:
+                recommendation_reason = "interest"  # 기본값
+            
+            scored_articles.append({
+                **article,
+                "recommendation_score": round(score, 2),
+                "recommendation_reason": recommendation_reason
+            })
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 점수 높은 순으로 정렬 후 상위 5개 반환
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        scored_articles.sort(key=lambda x: x["recommendation_score"], reverse=True)
+        top_recommended = scored_articles[:5]
+        
+        logger.info(f"추천 뉴스 {len(top_recommended)}개 생성 완료 (user_id={user_id}, topic={topic})")
+        
+        return {
+            "recommended": top_recommended,
+            "total": len(top_recommended)
+        }
+        
+    except Exception as e:
+        logger.error(f"추천 뉴스 생성 실패: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"추천 뉴스 생성 중 오류가 발생했습니다: {str(e)}"
         )
