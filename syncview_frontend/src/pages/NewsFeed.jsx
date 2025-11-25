@@ -866,12 +866,9 @@ export default function NewsFeed({ user }) {
       {/* 푸터 */}
       <footer className="relative z-10 text-xs text-gray-600 mt-auto px-10 py-8 bg-white/50 backdrop-blur-sm border-t border-white/50">
         <div className="max-w-6xl mx-auto text-center">
-          <p className="font-semibold mb-2">SyncView Home · Category · Bookmark · Notification</p>
-          <p className="text-gray-500 leading-relaxed">
-            Copyright 2025 SyncView. All rights reserved. 
-            The copyright of the content belongs to the copyright holder or 
-            the provider, and if you use it without permission, you may be liable 
-            under the copyright law.
+          <p className="font-semibold mb-2">SyncView - AI 기반 글로벌 뉴스 플랫폼</p>
+          <p className="text-gray-500">
+            Copyright © 2025 SyncView. All rights reserved.
           </p>
         </div>
       </footer>

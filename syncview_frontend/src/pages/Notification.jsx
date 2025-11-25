@@ -67,12 +67,10 @@ export default function Notification({ user }) {
       </main>
 
       {/* 푸터 */}
-      <footer className="text-xs text-gray-500 mt-12 px-10 py-6 border-t">
-        <p>SyncView Home · Category · Bookmark · Notification</p>
-        <p className="mt-2">
-          Copyright 2025 SyncView. All rights reserved. The copyright of the
-          content belongs to the copyright holder or the provider, and if you
-          use it without permission, you may be liable under the copyright law.
+      <footer className="text-xs text-gray-500 mt-12 px-10 py-6 border-t text-center">
+        <p className="font-semibold mb-2">SyncView - AI 기반 글로벌 뉴스 플랫폼</p>
+        <p className="text-gray-500">
+          Copyright © 2025 SyncView. All rights reserved.
         </p>
       </footer>
     </div>
