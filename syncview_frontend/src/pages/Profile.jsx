@@ -131,24 +131,24 @@ function Profile({ user, setUser }) {
             {/* 사용자 이름 */}
             <div className="mb-8">
               <label className="block text-sm font-semibold text-gray-700 mb-2">사용자 이름</label>
-              <input
-                type="text"
-                name="username"
+        <input
+          type="text"
+          name="username"
                 value={user.username || ""}
-                onChange={handleChange}
+          onChange={handleChange}
                 className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                 placeholder="사용자 이름을 입력하세요"
-              />
+        />
             </div>
 
             {/* 구독 설정 */}
             <div className="mb-8">
               <h3 className="text-lg font-bold text-gray-900 mb-4">구독 설정</h3>
-              
+
               {/* 주제 선택 */}
               <div className="mb-4">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">주제</label>
-                <select
+        <select
                   value={subscription.topic}
                   onChange={(e) => handleSubscriptionChange('topic', e.target.value)}
                   className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
@@ -157,7 +157,7 @@ function Profile({ user, setUser }) {
                   {topicOptions.map(topic => (
                     <option key={topic} value={topic}>{topic}</option>
                   ))}
-                </select>
+        </select>
               </div>
               
               {/* 매체 선택 */}
@@ -178,8 +178,8 @@ function Profile({ user, setUser }) {
 
             {/* 버튼 그룹 */}
             <div className="flex gap-4">
-              <button
-                onClick={handleSave}
+        <button
+          onClick={handleSave}
                 className="flex-1 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold shadow-lg hover:shadow-2xl hover:scale-105 transition-all duration-200"
               >
                 변경사항 저장
@@ -189,8 +189,8 @@ function Profile({ user, setUser }) {
                 className="flex-1 py-4 bg-white text-gray-700 rounded-xl font-bold ring-2 ring-gray-200 hover:bg-red-50 hover:ring-red-400 hover:text-red-600 transition-all duration-200"
               >
                 로그아웃
-              </button>
-            </div>
+        </button>
+      </div>
           </div>
 
           {/* 추가 정보 카드 */}

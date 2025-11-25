@@ -9,6 +9,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import os
+import random
+from datetime import datetime
+from dateutil import parser as date_parser
 from sqlalchemy.orm import Session
 from database import get_db
 from models import ReadArticle
@@ -516,12 +519,13 @@ class RecommendRequest(BaseModel):
 @router.post("/recommend")
 def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
     """
-    TOP 10 뉴스 중에서 사용자 맞춤 추천 뉴스 반환
+    사용자 맞춤 추천 뉴스 10개 반환 (관심사 + 읽기 기록 + 최신성 기반)
     
     추천 알고리즘:
     1. 관심사 기반: 사용자 topic과 뉴스 제목 키워드 매칭
     2. 읽은 기사 기반: 사용자 읽기 기록과 TF-IDF 유사도 분석
-    3. 점수 합산 후 상위 3-5개 반환
+    3. 최신성 기반: 최근 발행일수록 가점
+    4. 다양성 확보: 상위 3개 고정 + 나머지 7개 랜덤 샘플링
     """
     try:
         user_id = data.user_id
@@ -603,7 +607,41 @@ def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
                 logger.warning(f"읽기 기록 분석 중 오류 (user_id={user_id}): {e}")
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 3. 기본 점수 (모든 기사에 부여)
+            # 3. 최신성 점수 (발행일 기준, 최근일수록 높은 점수)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            recency_score = 0.0
+            published_str = article.get("published", "")
+            if published_str:
+                try:
+                    # 발행일 파싱 (다양한 형식 지원)
+                    published_date = date_parser.parse(published_str)
+                    now = datetime.now(published_date.tzinfo) if published_date.tzinfo else datetime.now()
+                    
+                    # 시간 차이 (시간 단위)
+                    time_diff_hours = (now - published_date).total_seconds() / 3600
+                    
+                    # 최신성 점수 계산 (24시간 이내: 5점, 48시간: 2.5점, 그 이후: 감소)
+                    if time_diff_hours < 24:
+                        recency_score = 5.0
+                    elif time_diff_hours < 48:
+                        recency_score = 2.5
+                    elif time_diff_hours < 72:
+                        recency_score = 1.0
+                    else:
+                        recency_score = 0.5
+                    
+                    score += recency_score
+                except Exception as e:
+                    logger.debug(f"발행일 파싱 실패: {published_str}, {e}")
+                    recency_score = 0.5
+                    score += recency_score
+            else:
+                # 발행일 정보 없으면 기본 점수
+                recency_score = 0.5
+                score += recency_score
+            
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 4. 기본 점수 (모든 기사에 부여)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             score += 1.0  # 기본 점수 (0점인 기사가 없도록)
             
@@ -618,12 +656,31 @@ def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
             })
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 점수 높은 순으로 정렬 후 상위 5개 반환
+        # 다양성 확보: 상위 3개 고정 + 나머지 7개 랜덤 샘플링
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         scored_articles.sort(key=lambda x: x["recommendation_score"], reverse=True)
-        top_recommended = scored_articles[:5]
+        
+        # 기사가 10개 이하면 전체 반환
+        if len(scored_articles) <= 10:
+            top_recommended = scored_articles
+        else:
+            # 상위 3개는 고정 (가장 추천 점수 높은 기사들)
+            top_3_fixed = scored_articles[:3]
+            
+            # 나머지 후보군 (4~끝)
+            remaining_candidates = scored_articles[3:]
+            
+            # 나머지 후보군에서 7개 랜덤 샘플링 (다양성 확보)
+            if len(remaining_candidates) <= 7:
+                sampled = remaining_candidates
+            else:
+                sampled = random.sample(remaining_candidates, 7)
+            
+            # 최종 추천 목록: 고정 3개 + 랜덤 7개
+            top_recommended = top_3_fixed + sampled
         
         logger.info(f"추천 뉴스 {len(top_recommended)}개 생성 완료 (user_id={user_id}, topic={topic})")
+        logger.debug(f"추천 점수 범위: {top_recommended[0]['recommendation_score']:.2f} ~ {top_recommended[-1]['recommendation_score']:.2f}")
         
         return {
             "recommended": top_recommended,
