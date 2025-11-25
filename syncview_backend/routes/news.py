@@ -189,20 +189,13 @@ def get_bbc_news():
 @router.get("/reuters")
 def get_reuters_news():
     try:
-        # Reuters Agency 공식 RSS 피드
-        rss_url = "https://www.reutersagency.com/feed/?best-topics=tech&post_type=best"
+        # Reuters World News RSS 피드
+        rss_url = "https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en"
         logger.info(f"Reuters RSS 피드 요청: {rss_url}")
         
         # RSS 피드 파싱
         feed = feedparser.parse(rss_url)
         logger.info(f"파싱된 entries 개수: {len(feed.entries)}")
-        
-        # 실패 시 BBC World로 대체
-        if not feed.entries:
-            logger.warning("Reuters RSS 실패, BBC World로 대체")
-            rss_url = "http://feeds.bbci.co.uk/news/world/rss.xml"
-            feed = feedparser.parse(rss_url)
-            logger.info(f"대체 피드 - 파싱된 entries 개수: {len(feed.entries)}")
         
         if not feed.entries:
             logger.warning("Reuters RSS 피드에서 뉴스를 찾을 수 없습니다.")
