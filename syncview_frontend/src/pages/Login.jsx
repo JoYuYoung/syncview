@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { loginUser } from "../services/api"; // API 호출 함수
+import { loginUser, API_URL } from "../services/api"; // API 호출 함수
 
 export default function Login({ setUser }) {
   console.log("🟢 Login 컴포넌트 렌더링됨"); // 페이지 진입 시 찍혀야 함
@@ -40,7 +40,7 @@ export default function Login({ setUser }) {
 
   const handleGoogleLogin = () => {
     // 백엔드 Google OAuth URL로 리다이렉트
-    window.location.href = "http://localhost:8000/auth/google";
+    window.location.href = `${API_URL}/auth/google`;
   };
 
   return (

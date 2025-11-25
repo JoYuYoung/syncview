@@ -1,5 +1,5 @@
 // src/services/api.js
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"; // FastAPI 서버 주소
+export const API_URL = import.meta.env.VITE_API_URL || "https://syncview.onrender.com"; // FastAPI 서버 주소
 
 // ==================== 인증 관련 API ====================
 
