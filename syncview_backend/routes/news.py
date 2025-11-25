@@ -12,6 +12,7 @@ import numpy as np
 import os
 import gc  # 메모리 최적화를 위한 가비지 컬렉션
 import psutil  # 메모리 사용량 모니터링
+import time  # API 재시도 대기용
 
 # ✅ accelerate와 meta device 완전히 비활성화
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
@@ -28,14 +29,13 @@ logger = logging.getLogger(__name__)
 # ✅ 감성 분석 모델만 로컬 사용
 sentiment_analyzer = None
 
-# 🌐 Hugging Face Inference API 설정
+# 🌐 Hugging Face Inference API 설정 (요약만 사용)
 HF_API_URL_SUMMARIZE = "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6"
-HF_API_URL_TRANSLATE = "https://api-inference.huggingface.co/models/Helsinki-NLP/opus-mt-en-ko"
 HF_API_TOKEN = os.getenv("HF_API_TOKEN", "")  # 환경 변수에서 토큰 읽기 (선택사항, 무료 한도로도 충분)
 
 def _call_hf_api(api_url: str, payload: dict, retry_count: int = 3) -> dict:
     """Hugging Face Inference API 호출 (재시도 로직 포함)"""
-    headers = {}
+    headers = {"Content-Type": "application/json"}
     if HF_API_TOKEN:
         headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
     
@@ -45,27 +45,35 @@ def _call_hf_api(api_url: str, payload: dict, retry_count: int = 3) -> dict:
             
             # 모델 로딩 중인 경우 (503)
             if response.status_code == 503:
-                result = response.json()
-                if "estimated_time" in result:
-                    wait_time = min(result["estimated_time"], 20)  # 최대 20초
-                    logger.info(f"⏳ 모델 로딩 중... {wait_time}초 대기 (시도 {attempt + 1}/{retry_count})")
-                    import time
-                    time.sleep(wait_time)
-                    continue
+                try:
+                    result = response.json()
+                    if "estimated_time" in result:
+                        wait_time = min(result["estimated_time"], 20)  # 최대 20초
+                        logger.info(f"⏳ 요약 모델 로딩 중... {wait_time}초 대기 (시도 {attempt + 1}/{retry_count})")
+                        time.sleep(wait_time)
+                        continue
+                except:
+                    # JSON 파싱 실패 시 기본 대기
+                    if attempt < retry_count - 1:
+                        logger.info(f"⏳ 재시도 중... (시도 {attempt + 1}/{retry_count})")
+                        time.sleep(5)
+                        continue
             
             response.raise_for_status()
             return response.json()
             
         except requests.exceptions.Timeout:
-            logger.warning(f"⏱️ API 타임아웃 (시도 {attempt + 1}/{retry_count})")
+            logger.warning(f"⏱️ 요약 API 타임아웃 (시도 {attempt + 1}/{retry_count})")
             if attempt == retry_count - 1:
-                raise HTTPException(status_code=504, detail="API 요청 시간 초과")
+                raise HTTPException(status_code=504, detail="요약 API 요청 시간 초과")
+            time.sleep(2)  # 재시도 전 대기
         except requests.exceptions.RequestException as e:
-            logger.error(f"❌ API 호출 실패 (시도 {attempt + 1}/{retry_count}): {e}")
+            logger.error(f"❌ 요약 API 호출 실패 (시도 {attempt + 1}/{retry_count}): {e}")
             if attempt == retry_count - 1:
-                raise HTTPException(status_code=503, detail=f"외부 API 호출 실패: {str(e)}")
+                raise HTTPException(status_code=503, detail=f"요약 API 호출 실패: {str(e)}")
+            time.sleep(2)  # 재시도 전 대기
     
-    raise HTTPException(status_code=503, detail="API 호출 최대 재시도 초과")
+    raise HTTPException(status_code=503, detail="요약 API 호출 최대 재시도 초과")
 
 def _get_sentiment_analyzer():
     """감성 분석 모델 초기화 (서버 시작 시 사전 로딩 - 가장 중요한 기능)"""
