@@ -519,13 +519,7 @@ class RecommendRequest(BaseModel):
 @router.post("/recommend")
 def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
     """
-    사용자 맞춤 추천 뉴스 10개 반환 (관심사 + 읽기 기록 + 최신성 기반)
-    
-    추천 알고리즘:
-    1. 관심사 기반: 사용자 topic과 뉴스 제목 키워드 매칭
-    2. 읽은 기사 기반: 사용자 읽기 기록과 TF-IDF 유사도 분석
-    3. 최신성 기반: 최근 발행일수록 가점
-    4. 다양성 확보: 상위 3개 고정 + 나머지 7개 랜덤 샘플링
+    사용자 맞춤 추천 뉴스 4개 반환 (관심사 기반 1개 + 인기 급상승 3개)
     """
     try:
         user_id = data.user_id
@@ -535,11 +529,8 @@ def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
         if not articles or len(articles) == 0:
             return {"recommended": []}
         
-        # 각 뉴스에 추천 점수 부여
-        scored_articles = []
-        
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 1. 관심사 기반 점수 (topic 키워드 매칭)
+        # 1. 관심사 기반 추천 1개
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         topic_keywords = {
             "정치": ["election", "government", "politics", "minister", "president", "policy", "vote", "parliament", "congress"],
@@ -549,142 +540,110 @@ def recommend_news(data: RecommendRequest, db: Session = Depends(get_db)):
             "문화": ["culture", "movie", "music", "art", "entertainment", "film", "celebrity", "festival", "book", "theater"]
         }
         
-        for article in articles:
-            score = 0.0
-            recommendation_reason = None
+        interest_based_article = None
+        if topic and topic in topic_keywords:
+            keywords = topic_keywords[topic]
             
-            title = article.get("title", "").lower()
-            summary = article.get("summary", "").lower()
-            content = f"{title} {summary}"
-            
-            # 관심사 키워드 매칭 점수
-            interest_score = 0.0
-            if topic and topic in topic_keywords:
-                keywords = topic_keywords[topic]
+            # 각 기사의 관심사 매칭 점수 계산
+            scored_for_interest = []
+            for article in articles:
+                title = article.get("title", "").lower()
+                summary = article.get("summary", "").lower()
+                content = f"{title} {summary}"
+                
                 matched_keywords = sum(1 for keyword in keywords if keyword.lower() in content)
-                interest_score = matched_keywords / len(keywords)  # 0~1 점수
+                interest_score = matched_keywords / len(keywords) if len(keywords) > 0 else 0.0
                 
-                if interest_score > 0.3:  # 30% 이상 매칭 시
-                    score += interest_score * 10  # 가중치 10
-                    recommendation_reason = "interest"
+                if interest_score > 0:
+                    scored_for_interest.append({
+                        "article": article,
+                        "score": interest_score
+                    })
             
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 2. 읽은 기사 기반 점수 (TF-IDF 유사도)
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            history_score = 0.0
-            try:
-                # 사용자가 읽은 최근 10개 기사 가져오기
-                read_articles = db.query(ReadArticle).filter(
-                    ReadArticle.user_id == user_id
-                ).order_by(ReadArticle.read_at.desc()).limit(10).all()
-                
-                if read_articles and len(read_articles) > 0:
-                    # 읽은 기사 제목들
-                    read_titles = [ra.article_title for ra in read_articles if ra.article_title]
-                    
-                    if read_titles:
-                        # TF-IDF 벡터화
-                        all_texts = read_titles + [content]
-                        vectorizer = TfidfVectorizer(stop_words='english', max_features=500)
-                        tfidf_matrix = vectorizer.fit_transform(all_texts)
-                        
-                        # 현재 기사와 읽은 기사들의 유사도 계산
-                        current_vector = tfidf_matrix[-1:]  # 마지막 (현재 기사)
-                        read_vectors = tfidf_matrix[:-1]    # 나머지 (읽은 기사들)
-                        similarities = cosine_similarity(current_vector, read_vectors)[0]
-                        
-                        # 최대 유사도를 점수로 사용
-                        max_similarity = float(np.max(similarities))
-                        history_score = max_similarity
-                        
-                        if max_similarity > 0.3:  # 30% 이상 유사 시
-                            score += history_score * 10  # 가중치 10
-                            if recommendation_reason is None:
-                                recommendation_reason = "history"
-                            elif recommendation_reason == "interest":
-                                recommendation_reason = "both"  # 관심사 + 읽기 패턴
-            except Exception as e:
-                logger.warning(f"읽기 기록 분석 중 오류 (user_id={user_id}): {e}")
+            # 관심사 매칭 점수가 가장 높은 기사 1개 선택
+            if scored_for_interest:
+                scored_for_interest.sort(key=lambda x: x["score"], reverse=True)
+                interest_based_article = {
+                    **scored_for_interest[0]["article"],
+                    "recommendation_reason": "interest"
+                }
+        
+        # 관심사 기반 기사를 찾지 못한 경우 첫 번째 기사 사용
+        if not interest_based_article:
+            interest_based_article = {
+                **articles[0],
+                "recommendation_reason": "interest"
+            }
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 2. 인기 급상승 뉴스 3개 (최신 + 긍정적 감성)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        trending_candidates = []
+        interest_url = interest_based_article.get("url")
+        
+        for article in articles:
+            # 이미 관심사 기반으로 선택된 기사는 제외
+            if article.get("url") == interest_url:
+                continue
             
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 3. 최신성 점수 (발행일 기준, 최근일수록 높은 점수)
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            recency_score = 0.0
+            score = 0.0
+            
+            # 최신성 점수
             published_str = article.get("published", "")
             if published_str:
                 try:
-                    # 발행일 파싱 (다양한 형식 지원)
                     published_date = date_parser.parse(published_str)
                     now = datetime.now(published_date.tzinfo) if published_date.tzinfo else datetime.now()
-                    
-                    # 시간 차이 (시간 단위)
                     time_diff_hours = (now - published_date).total_seconds() / 3600
                     
-                    # 최신성 점수 계산 (24시간 이내: 5점, 48시간: 2.5점, 그 이후: 감소)
+                    # 24시간 이내: 10점, 48시간: 5점, 72시간: 2점
                     if time_diff_hours < 24:
-                        recency_score = 5.0
+                        score += 10.0
                     elif time_diff_hours < 48:
-                        recency_score = 2.5
+                        score += 5.0
                     elif time_diff_hours < 72:
-                        recency_score = 1.0
+                        score += 2.0
                     else:
-                        recency_score = 0.5
-                    
-                    score += recency_score
-                except Exception as e:
-                    logger.debug(f"발행일 파싱 실패: {published_str}, {e}")
-                    recency_score = 0.5
-                    score += recency_score
+                        score += 1.0
+                except:
+                    score += 1.0
             else:
-                # 발행일 정보 없으면 기본 점수
-                recency_score = 0.5
-                score += recency_score
+                score += 1.0
             
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 4. 기본 점수 (모든 기사에 부여)
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            score += 1.0  # 기본 점수 (0점인 기사가 없도록)
+            # 감성 점수 (긍정적 뉴스 우대)
+            sentiment = article.get("sentiment", "neutral")
+            if sentiment == "positive":
+                score += 5.0
+            elif sentiment == "neutral":
+                score += 2.0
             
-            # 추천 이유가 없으면 기본값
-            if recommendation_reason is None:
-                recommendation_reason = "interest"  # 기본값
-            
-            scored_articles.append({
-                **article,
-                "recommendation_score": round(score, 2),
-                "recommendation_reason": recommendation_reason
+            trending_candidates.append({
+                "article": article,
+                "score": score
             })
         
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 다양성 확보: 상위 3개 고정 + 나머지 7개 랜덤 샘플링
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        scored_articles.sort(key=lambda x: x["recommendation_score"], reverse=True)
+        # 점수 높은 순으로 정렬 후 상위 3개 선택
+        trending_candidates.sort(key=lambda x: x["score"], reverse=True)
+        trending_articles = [
+            {
+                **item["article"],
+                "recommendation_reason": "trending"
+            }
+            for item in trending_candidates[:3]
+        ]
         
-        # 기사가 10개 이하면 전체 반환
-        if len(scored_articles) <= 10:
-            top_recommended = scored_articles
-        else:
-            # 상위 3개는 고정 (가장 추천 점수 높은 기사들)
-            top_3_fixed = scored_articles[:3]
-            
-            # 나머지 후보군 (4~끝)
-            remaining_candidates = scored_articles[3:]
-            
-            # 나머지 후보군에서 7개 랜덤 샘플링 (다양성 확보)
-            if len(remaining_candidates) <= 7:
-                sampled = remaining_candidates
-            else:
-                sampled = random.sample(remaining_candidates, 7)
-            
-            # 최종 추천 목록: 고정 3개 + 랜덤 7개
-            top_recommended = top_3_fixed + sampled
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 최종 추천 목록: 관심사 1개 + 인기 급상승 3개
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        recommended = [interest_based_article] + trending_articles
         
-        logger.info(f"추천 뉴스 {len(top_recommended)}개 생성 완료 (user_id={user_id}, topic={topic})")
-        logger.debug(f"추천 점수 범위: {top_recommended[0]['recommendation_score']:.2f} ~ {top_recommended[-1]['recommendation_score']:.2f}")
+        logger.info(f"추천 뉴스 {len(recommended)}개 생성 완료 (user_id={user_id}, topic={topic})")
+        logger.info(f"  - 관심사 기반: 1개")
+        logger.info(f"  - 인기 급상승: {len(trending_articles)}개")
         
         return {
-            "recommended": top_recommended,
-            "total": len(top_recommended)
+            "recommended": recommended,
+            "total": len(recommended)
         }
         
     except Exception as e:
