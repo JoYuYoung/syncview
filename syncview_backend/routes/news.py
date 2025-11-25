@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Cloud Run AI 서비스 공통 함수
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def call_ai_service(path: str, payload: dict, timeout: int = 60) -> dict:
+def call_ai_service(path: str, payload: dict, timeout: int = 120) -> dict:
     """
     Cloud Run AI 서비스로 HTTP 요청 전달 (공통 프록시 함수)
     
@@ -371,7 +371,7 @@ def summarize_news(url: str):
             "min_length": 30
         }
         
-        result = call_ai_service("/summarize", payload, timeout=60)
+        result = call_ai_service("/summarize", payload, timeout=120)
         
         # 응답 처리
         summary_text = result.get("summary", "요약을 생성할 수 없습니다.")

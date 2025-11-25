@@ -13,7 +13,7 @@ class TranslateReq(BaseModel):
     source_lang: str = "en"  # 소스 언어 (기본값: 영어)
     target_lang: str = "ko"  # 타깃 언어 (기본값: 한국어)
 
-def call_ai_service(path: str, payload: dict, timeout: int = 60) -> dict:
+def call_ai_service(path: str, payload: dict, timeout: int = 120) -> dict:
     """
     Cloud Run AI 서비스로 HTTP 요청 전달
     (news.py와 동일한 함수 - 중복이지만 독립성을 위해 유지)
@@ -131,7 +131,7 @@ def translate(req: TranslateReq):
             "target_lang": req.target_lang
         }
         
-        result = call_ai_service("/translate", payload, timeout=60)
+        result = call_ai_service("/translate", payload, timeout=120)
         
         logger.info(f"✅ 번역 완료 (Cloud Run AI)")
         return {"translated_text": result.get("translated_text", req.text)}
