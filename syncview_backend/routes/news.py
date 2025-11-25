@@ -25,36 +25,47 @@ torch.set_default_device('cpu')
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# ✅ 요약 모델 (BART 사용, 처음 실행 시 다운로드됨)
-summarizer = None
+# ✅ 감성 분석 모델만 로컬 사용
 sentiment_analyzer = None
 
-def _get_summarizer():
-    """지연 로딩으로 요약 모델 초기화 (첫 요약 요청 시 자동 로딩)"""
-    global summarizer
-    if summarizer is None:
+# 🌐 Hugging Face Inference API 설정
+HF_API_URL_SUMMARIZE = "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6"
+HF_API_URL_TRANSLATE = "https://api-inference.huggingface.co/models/Helsinki-NLP/opus-mt-en-ko"
+HF_API_TOKEN = os.getenv("HF_API_TOKEN", "")  # 환경 변수에서 토큰 읽기 (선택사항, 무료 한도로도 충분)
+
+def _call_hf_api(api_url: str, payload: dict, retry_count: int = 3) -> dict:
+    """Hugging Face Inference API 호출 (재시도 로직 포함)"""
+    headers = {}
+    if HF_API_TOKEN:
+        headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
+    
+    for attempt in range(retry_count):
         try:
-            process = psutil.Process(os.getpid())
-            mem_before = process.memory_info().rss / 1024 / 1024
+            response = requests.post(api_url, headers=headers, json=payload, timeout=30)
             
-            logger.info("🔄 요약 모델 로딩 중 (경량 버전, ~150MB)...")
-            logger.info("⏳ 첫 요약 요청이므로 5초 정도 소요됩니다...")
-            # ✅ 더 작은 모델 사용: distilbart-cnn-6-6 (12-6보다 50% 작음)
-            summarizer = pipeline(
-                "summarization",
-                model="sshleifer/distilbart-cnn-6-6",
-                device=-1,  # CPU 강제
-                framework="pt"  # PyTorch 명시
-            )
-            gc.collect()  # 메모리 정리
+            # 모델 로딩 중인 경우 (503)
+            if response.status_code == 503:
+                result = response.json()
+                if "estimated_time" in result:
+                    wait_time = min(result["estimated_time"], 20)  # 최대 20초
+                    logger.info(f"⏳ 모델 로딩 중... {wait_time}초 대기 (시도 {attempt + 1}/{retry_count})")
+                    import time
+                    time.sleep(wait_time)
+                    continue
             
-            mem_after = process.memory_info().rss / 1024 / 1024
-            logger.info(f"✅ 요약 모델 로딩 완료 (이후 요청은 즉시 처리)")
-            logger.info(f"   +{mem_after - mem_before:.1f} MB, 총 메모리: {mem_after:.1f} MB")
-        except Exception as e:
-            logger.error(f"❌ 요약 모델 로딩 실패: {e}")
-            raise HTTPException(status_code=503, detail="요약 모델을 로딩할 수 없습니다.")
-    return summarizer
+            response.raise_for_status()
+            return response.json()
+            
+        except requests.exceptions.Timeout:
+            logger.warning(f"⏱️ API 타임아웃 (시도 {attempt + 1}/{retry_count})")
+            if attempt == retry_count - 1:
+                raise HTTPException(status_code=504, detail="API 요청 시간 초과")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ API 호출 실패 (시도 {attempt + 1}/{retry_count}): {e}")
+            if attempt == retry_count - 1:
+                raise HTTPException(status_code=503, detail=f"외부 API 호출 실패: {str(e)}")
+    
+    raise HTTPException(status_code=503, detail="API 호출 최대 재시도 초과")
 
 def _get_sentiment_analyzer():
     """감성 분석 모델 초기화 (서버 시작 시 사전 로딩 - 가장 중요한 기능)"""
@@ -283,33 +294,49 @@ def get_news_detail(url: str):
         raise HTTPException(status_code=500, detail=f"뉴스 본문을 가져올 수 없습니다: {str(e)}")
 
 # -------------------------------
-# 3. 기사 요약하기 (Hugging Face 사용)
+# 3. 기사 요약하기 (Hugging Face Inference API 사용)
 # -------------------------------
 @router.get("/summary")
 def summarize_news(url: str):
     try:
-        logger.info(f"뉴스 요약 요청: {url}")
+        logger.info(f"🔄 뉴스 요약 요청 (외부 API): {url}")
         
         # 웹페이지 내용 가져오기
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
 
         paragraphs = soup.find_all("p")
-        content = " ".join([p.get_text() for p in paragraphs])[:3000]
+        content = " ".join([p.get_text() for p in paragraphs])[:1024]  # API 제한 고려
 
         if not content or len(content.strip()) < 50:
             logger.warning("뉴스 본문이 너무 짧거나 없습니다.")
             return {"url": url, "summary": "본문을 요약할 수 없습니다. 내용이 너무 짧거나 접근할 수 없습니다."}
 
-        # 요약 모델 로딩 및 실행
-        summarizer_model = _get_summarizer()
-        result = summarizer_model(content, max_length=130, min_length=30, do_sample=False)
-
-        logger.info("뉴스 요약 완료")
-        return {"url": url, "summary": result[0]["summary_text"]}
+        # Hugging Face Inference API 호출
+        payload = {
+            "inputs": content,
+            "parameters": {
+                "max_length": 130,
+                "min_length": 30,
+                "do_sample": False
+            }
+        }
         
+        result = _call_hf_api(HF_API_URL_SUMMARIZE, payload)
+        
+        # API 응답 처리
+        if isinstance(result, list) and len(result) > 0:
+            summary_text = result[0].get("summary_text", "요약 실패")
+        else:
+            summary_text = "요약을 생성할 수 없습니다."
+
+        logger.info("✅ 뉴스 요약 완료 (외부 API)")
+        return {"url": url, "summary": summary_text}
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"뉴스 요약 실패: {e}")
+        logger.error(f"❌ 뉴스 요약 실패: {e}")
         raise HTTPException(
             status_code=500, 
             detail=f"뉴스 요약 중 오류가 발생했습니다: {str(e)}"

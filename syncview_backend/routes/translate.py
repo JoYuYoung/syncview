@@ -1,74 +1,104 @@
-# routes/translate.py
+# routes/translate.py - Hugging Face Inference API 사용
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from pathlib import Path
-
-
-# 공개 API만 임포트 (private 함수는 임포트하지 않음)
-from translator_hf import translate_en_to_ko, LOCAL_MODEL_DIR
+import requests
+import logging
+import os
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# 🌐 Hugging Face Inference API 설정
+HF_API_URL_TRANSLATE = "https://api-inference.huggingface.co/models/Helsinki-NLP/opus-mt-en-ko"
+HF_API_TOKEN = os.getenv("HF_API_TOKEN", "")  # 환경 변수에서 토큰 읽기 (선택사항)
 
 class TranslateReq(BaseModel):
     text: str
     target_lang: str = "ko"   # 확장 대비, 현재는 ko만 지원
 
+def _call_translation_api(text: str, retry_count: int = 3) -> str:
+    """Hugging Face Inference API로 번역 호출"""
+    headers = {"Content-Type": "application/json"}
+    if HF_API_TOKEN:
+        headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
+    
+    payload = {"inputs": text}
+    
+    for attempt in range(retry_count):
+        try:
+            response = requests.post(
+                HF_API_URL_TRANSLATE, 
+                headers=headers, 
+                json=payload, 
+                timeout=30
+            )
+            
+            # 모델 로딩 중인 경우 (503)
+            if response.status_code == 503:
+                result = response.json()
+                if "estimated_time" in result:
+                    wait_time = min(result["estimated_time"], 20)  # 최대 20초
+                    logger.info(f"⏳ 번역 모델 로딩 중... {wait_time}초 대기 (시도 {attempt + 1}/{retry_count})")
+                    import time
+                    time.sleep(wait_time)
+                    continue
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            # API 응답 처리
+            if isinstance(result, list) and len(result) > 0:
+                return result[0].get("translation_text", text)
+            else:
+                return text  # 번역 실패 시 원문 반환
+            
+        except requests.exceptions.Timeout:
+            logger.warning(f"⏱️ 번역 API 타임아웃 (시도 {attempt + 1}/{retry_count})")
+            if attempt == retry_count - 1:
+                raise HTTPException(status_code=504, detail="번역 API 요청 시간 초과")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ 번역 API 호출 실패 (시도 {attempt + 1}/{retry_count}): {e}")
+            if attempt == retry_count - 1:
+                raise HTTPException(status_code=503, detail=f"번역 API 호출 실패: {str(e)}")
+    
+    raise HTTPException(status_code=503, detail="번역 API 호출 최대 재시도 초과")
+
 @router.get("/translate/health")
 def health_check():
     """
-    번역 서비스 상태 확인
-    - 로컬 모드: 모델 파일 존재 확인
-    - 프로덕션 모드: 온라인 다운로드 가능 여부 확인
+    번역 서비스 상태 확인 (Hugging Face Inference API)
     """
-    # 프로덕션 환경 (Render): 온라인 다운로드 모드
-    if LOCAL_MODEL_DIR is None:
-        try:
-            # 간단한 번역 테스트로 서비스 확인
-            _ = translate_en_to_ko("test")
-            return {"status": "ok", "mode": "online", "model": "facebook/nllb-200-distilled-600M"}
-        except Exception as e:
-            return {"status": "unhealthy", "service": "translation", "error": str(e)}
-    
-    # 로컬 환경: 모델 파일 확인
-    model_dir: Path = LOCAL_MODEL_DIR
-    if not model_dir.exists():
-        return {"status": "unhealthy", "service": "translation",
-                "error": f"Model folder not found: {model_dir}"}
-
-    # 필수 파일 점검
-    required = [
-        model_dir / "config.json",
-        model_dir / "tokenizer_config.json",
-    ]
-    alt_tokenizers = [model_dir / "tokenizer.json", model_dir / "source.spm"]
-    alt_weights    = [model_dir / "pytorch_model.bin", model_dir / "model.safetensors"]
-
-    missing = [str(p) for p in required if not p.exists()]
-    if not any(p.exists() for p in alt_tokenizers):
-        missing.append("tokenizer.json OR source.spm (둘 중 하나 필요)")
-    if not any(p.exists() for p in alt_weights):
-        missing.append("pytorch_model.bin OR model.safetensors (둘 중 하나 필요)")
-
-    if missing:
-        return {"status": "unhealthy", "service": "translation",
-                "error": "필수 모델 파일 누락", "missing": missing}
-
-    # 초경량 로드 테스트
     try:
-        _ = translate_en_to_ko("ping")
-        return {"status": "ok", "mode": "local", "model": model_dir.name}
+        # 간단한 번역 테스트
+        _ = _call_translation_api("test", retry_count=1)
+        return {
+            "status": "ok", 
+            "mode": "external_api", 
+            "model": "Helsinki-NLP/opus-mt-en-ko",
+            "provider": "Hugging Face Inference API"
+        }
     except Exception as e:
-        return {"status": "unhealthy", "service": "translation", "error": str(e)}
+        return {
+            "status": "unhealthy", 
+            "service": "translation", 
+            "error": str(e)
+        }
 
 @router.post("/translate")
 def translate(req: TranslateReq):
+    """번역 API (영어 → 한국어)"""
     if req.target_lang != "ko":
         raise HTTPException(status_code=400, detail="현재는 ko(한국어)만 지원합니다.")
     if not req.text or not req.text.strip():
         raise HTTPException(status_code=400, detail="text is empty")
 
     try:
-        result = translate_en_to_ko(req.text)
+        logger.info(f"🔄 번역 요청 (외부 API): {req.text[:50]}...")
+        result = _call_translation_api(req.text)
+        logger.info(f"✅ 번역 완료 (외부 API)")
         return {"translated_text": result}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"translation failed: {e}")
+        logger.error(f"❌ 번역 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"번역 실패: {str(e)}")

@@ -21,7 +21,7 @@ async def startup_event():
     logger = logging.getLogger(__name__)
     
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info("🎓 SyncView 백엔드 서버 시작 (졸업작품 최적화)")
+    logger.info("🎓 SyncView 백엔드 서버 시작 (졸업작품 최적화 v2)")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     # 시작 메모리 측정
@@ -29,10 +29,11 @@ async def startup_event():
     mem_before = process.memory_info().rss / 1024 / 1024  # MB
     logger.info(f"📊 시작 메모리: {mem_before:.1f} MB")
     
-    logger.info("💡 AI 모델 로딩 전략:")
-    logger.info("   ✅ 감성 분석: 즉시 로딩 (~268MB) - 가장 중요한 기능")
-    logger.info("   ⏳ 요약: 첫 요청 시 로딩 (~150MB)")
-    logger.info("   ⏳ 번역: 첫 요청 시 로딩 (~100MB)")
+    logger.info("💡 AI 모델 전략 (하이브리드 방식):")
+    logger.info("   ✅ 감성 분석: 로컬 모델 사전 로딩 (~268MB) - 가장 중요")
+    logger.info("   🌐 요약: Hugging Face Inference API (메모리 0MB)")
+    logger.info("   🌐 번역: Hugging Face Inference API (메모리 0MB)")
+    logger.info("   💾 예상 총 메모리: ~768MB (2GB 안정 운영)")
     
     # 감성 분석 모델만 사전 로딩 (가장 중요하고 자주 사용됨)
     try:
@@ -42,14 +43,15 @@ async def startup_event():
         
         mem_after = process.memory_info().rss / 1024 / 1024  # MB
         logger.info(f"✅ 감성 분석 모델 로딩 완료 (+{mem_after - mem_before:.1f} MB)")
-        logger.info(f"📊 현재 메모리: {mem_after:.1f} MB")
-        logger.info(f"💾 예상 최대 메모리: ~{mem_after + 250:.0f} MB (요약+번역 포함)")
+        logger.info(f"📊 현재 메모리: {mem_after:.1f} MB / 2048 MB")
+        logger.info(f"💾 메모리 여유: {2048 - mem_after:.0f} MB (충분!)")
     except Exception as e:
         logger.error(f"❌ 감성 분석 모델 로딩 실패: {e}")
         logger.warning("⚠️  감성 분석 기능이 작동하지 않을 수 있습니다")
     
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info("✅ 서버 준비 완료 - 2GB RAM 안정 운영 모드")
+    logger.info("✅ 서버 준비 완료 - 하이브리드 AI 전략 (로컬 + 외부 API)")
+    logger.info("✅ 2GB RAM 안정 운영 모드 / 메모리 걱정 없음!")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 # ✅ CORS 설정 (반드시 다른 Middleware보다 먼저!)
