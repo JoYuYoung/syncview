@@ -308,7 +308,6 @@ export default function NewsFeed({ user }) {
     const url = article.link || article.url;
     if (!url) return;
 
-    // 팝업 먼저 띄우기 (선택한 소스 정보 같이 넣어줌)
     setSelectedArticle({
       ...article,
       source: selectedSource,
@@ -316,28 +315,21 @@ export default function NewsFeed({ user }) {
     setArticleLoading(true);
 
     try {
-      // 전체 기사 + 요약 + 번역 + 감성 분석
       const full = await getFullArticle(url);
-      const merged = {
-        ...(article || {}),
+
+      setSelectedArticle((prev) => ({
+        ...(prev || article),
         ...full,
         source: selectedSource,
-      };
+      }));
 
-      setSelectedArticle(merged);
-
-      // 🔹 읽기 기록 남기기 → 분석 대시보드에서 사용
       if (user && user.id) {
         recordReadArticle({
           user_id: user.id,
           url,
-          title: merged.title,
-          source: merged.source || selectedSource,
-          // 감성 분석 결과 (도넛 차트 / 긍정 비율)
-          sentiment: merged.sentiment?.sentiment || null, // "positive" | "negative" | "neutral"
-          sentiment_score: merged.sentiment?.score ?? null,
-          // 카테고리 / 인기 카테고리
-          category: subscription?.topic || null,
+          title: article.title,
+          source: selectedSource,
+          topic: subscription?.topic || null,
         }).catch((err) => {
           console.warn("읽기 기록 실패(무시):", err);
         });
@@ -400,138 +392,136 @@ export default function NewsFeed({ user }) {
     <>
       <Navbar user={user} />
 
-      <main className="min-h-[calc(100vh-80px)] bg-gradient-to-b from-sky-50 to-indigo-50 px-8 py-10">
-        <div className="flex justify-center">
-          {/* 메인 카드 폭/여백 키움 */}
-          <section className="w-full max-w-5xl bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_18px_45px_rgba(15,23,42,0.12)] border border-indigo-100 px-8 py-7">
-            {/* 헤더 */}
-            <div className="mb-5 flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-900">
-                  {sourceLabel} 최신 뉴스
-                </h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  관심사 및 읽기 기록을 기반으로 뉴스를 추천해 드립니다.
-                </p>
-              </div>
-
-              {/* 매체 선택 버튼 */}
-              <div className="inline-flex bg-slate-100 rounded-full p-1">
-                {SOURCES.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedSource(s.id);
-                      setActiveTab("top");
-                    }}
-                    className={`px-4 py-1.5 text-[11px] font-medium rounded-full transition-all ${
-                      selectedSource === s.id
-                        ? "bg-white shadow-sm text-slate-900"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
+      {/* 여백 줄이고 폭 넓힌 레이아웃 */}
+      <main className="min-h-[calc(100vh-64px)] bg-gradient-to-b from-sky-50 to-indigo-50 px-4 sm:px-6 lg:px-10 py-4 sm:py-6">
+        <section className="w-full max-w-6xl mx-auto bg-white/90 backdrop-blur-xl rounded-3xl shadow-[0_18px_45px_rgba(15,23,42,0.12)] border border-indigo-100 px-5 sm:px-7 lg:px-8 py-5 sm:py-6">
+          {/* 헤더 */}
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">
+                {sourceLabel} 최신 뉴스
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                관심사 및 읽기 기록을 기반으로 뉴스를 추천해 드립니다.
+              </p>
             </div>
 
-            {/* 탭 + 제목 번역 버튼 */}
-            <div className="flex items-center justify-between mb-4 gap-3">
-              <div className="inline-flex bg-slate-100 rounded-full p-1">
+            {/* 매체 선택 버튼 */}
+            <div className="inline-flex bg-slate-100 rounded-full p-1">
+              {SOURCES.map((s) => (
                 <button
+                  key={s.id}
                   type="button"
-                  onClick={() => setActiveTab("top")}
-                  className={`px-7 py-1.5 text-xs font-semibold rounded-full transition-all ${
-                    activeTab === "top"
+                  onClick={() => {
+                    setSelectedSource(s.id);
+                    setActiveTab("top");
+                  }}
+                  className={`px-4 py-1.5 text-[11px] font-medium rounded-full transition-all ${
+                    selectedSource === s.id
                       ? "bg-white shadow-sm text-slate-900"
                       : "text-slate-500"
                   }`}
                 >
-                  TOP 15
+                  {s.label}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("recommend")}
-                  className={`px-7 py-1.5 text-xs font-semibold rounded-full transition-all ${
-                    activeTab === "recommend"
-                      ? "bg-white shadow-sm text-slate-900"
-                      : "text-slate-500"
-                  }`}
-                >
-                  추천 뉴스
-                </button>
-              </div>
+              ))}
+            </div>
+          </div>
 
+          {/* 탭 + 제목 번역 버튼 */}
+          <div className="flex items-center justify-between mb-3 gap-3">
+            <div className="inline-flex bg-slate-100 rounded-full p-1">
               <button
                 type="button"
-                onClick={handleToggleTitleTranslation}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full border border-slate-200 bg-white text-xs text-slate-700 hover:bg-slate-50 ml-auto"
+                onClick={() => setActiveTab("top")}
+                className={`px-7 py-1.5 text-xs font-semibold rounded-full transition-all ${
+                  activeTab === "top"
+                    ? "bg-white shadow-sm text-slate-900"
+                    : "text-slate-500"
+                }`}
               >
-                <span className="font-semibold">Aa</span>
-                {titleTranslationLoading
-                  ? "제목 번역 중…"
-                  : titleTranslationEnabled
-                  ? "원문 제목"
-                  : "한글 제목"}
+                TOP 15
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("recommend")}
+                className={`px-7 py-1.5 text-xs font-semibold rounded-full transition-all ${
+                  activeTab === "recommend"
+                    ? "bg-white shadow-sm text-slate-900"
+                    : "text-slate-500"
+                }`}
+              >
+                추천 뉴스
               </button>
             </div>
 
-            {/* 리스트 헤더 */}
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[11px] font-semibold text-slate-500">
-                {activeTab === "top"
-                  ? "실시간 TOP 15 뉴스"
-                  : "맞춤 추천 뉴스"}
+            <button
+              type="button"
+              onClick={handleToggleTitleTranslation}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full border border-slate-200 bg-white text-xs text-slate-700 hover:bg-slate-50 ml-auto"
+            >
+              <span className="font-semibold">Aa</span>
+              {titleTranslationLoading
+                ? "제목 번역 중…"
+                : titleTranslationEnabled
+                ? "원문 제목"
+                : "한글 제목"}
+            </button>
+          </div>
+
+          {/* 리스트 헤더 */}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-slate-500">
+              {activeTab === "top"
+                ? "실시간 TOP 15 뉴스"
+                : "맞춤 추천 뉴스"}
+            </span>
+            {activeTab === "recommend" && (
+              <span className="text-[11px] text-slate-400">
+                관심사: {subscription?.topic || "미설정"}
               </span>
-              {activeTab === "recommend" && (
-                <span className="text-[11px] text-slate-400">
-                  관심사: {subscription?.topic || "미설정"}
-                </span>
-              )}
-            </div>
+            )}
+          </div>
 
-            {/* 기사 리스트 */}
-            <div className="max-h-[60vh] overflow-y-auto pr-1 space-y-3">
-              {currentList.length === 0 ? (
-                <div className="py-10 text-center text-xs text-slate-400">
-                  {activeTab === "recommend"
-                    ? "추천할 기사가 아직 없습니다. 관심사에 맞는 기사가 더 쌓이면 자동으로 추천됩니다."
-                    : "표시할 기사가 없습니다."}
-                </div>
-              ) : (
-                currentList.map((article, idx) => {
-                  const key = article.link || article.url || idx;
-                  const translatedTitle =
-                    titleTranslationEnabled && translatedTitles[key]
-                      ? translatedTitles[key]
-                      : article.title;
+          {/* 기사 리스트: 세로 여백/높이 줄이고 더 많이 채움 */}
+          <div className="max-h-[72vh] overflow-y-auto pr-1 space-y-2.5">
+            {currentList.length === 0 ? (
+              <div className="py-10 text-center text-xs text-slate-400">
+                {activeTab === "recommend"
+                  ? "추천할 기사가 아직 없습니다. 관심사에 맞는 기사가 더 쌓이면 자동으로 추천됩니다."
+                  : "표시할 기사가 없습니다."}
+              </div>
+            ) : (
+              currentList.map((article, idx) => {
+                const key = article.link || article.url || idx;
+                const translatedTitle =
+                  titleTranslationEnabled && translatedTitles[key]
+                    ? translatedTitles[key]
+                    : article.title;
 
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => handleSelectArticle(article)}
-                      className="w-full text-left bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 flex flex-col gap-1.5 transition-all shadow-sm hover:shadow-md"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <h3 className="text-sm font-semibold text-slate-900 line-clamp-2">
-                          {translatedTitle}
-                        </h3>
-                      </div>
-                      {article.description && (
-                        <p className="text-xs text-slate-500 line-clamp-2">
-                          {article.description}
-                        </p>
-                      )}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </section>
-        </div>
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => handleSelectArticle(article)}
+                    className="w-full text-left bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3.5 flex flex-col gap-1.5 transition-all shadow-sm hover:shadow-md"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-semibold text-slate-900 line-clamp-2">
+                        {translatedTitle}
+                      </h3>
+                    </div>
+                    {article.description && (
+                      <p className="text-xs text-slate-500 line-clamp-2">
+                        {article.description}
+                      </p>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </section>
       </main>
 
       {/* 우측 슬라이드 모달 */}
